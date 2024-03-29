@@ -1,2 +1,3 @@
 # sam_2_native
-Convert SAM jetways to naive XP12 jetways
+WIP
+Convert SAM jetways to native XP12 jetways
