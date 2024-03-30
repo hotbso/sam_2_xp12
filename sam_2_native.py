@@ -22,12 +22,18 @@
 
 VERSION = "1"
 
-import platform, sys, os, os.path, time, shlex, subprocess, shutil, re
+import platform, sys, os, os.path, math, shlex, subprocess, shutil, re
 
 import configparser
 import logging
 
 log = logging.getLogger("sam_2_native")
+
+def normalize_hdg(hdg):
+    hdg = math.fmod(hdg, 360.0)
+    if hdg < 0:
+        hdg += 360.0
+    return hdg
 
 class ObjPos():
     eps_pos = 0.00001
@@ -50,7 +56,9 @@ class SAM_jw(ObjPos):
     # minRot1="-85" maxRot1="5" minRot2="-72" maxRot2="41" minRot3="-6" maxRot3="6"
     # minExtent="0" maxExtent="15.3999996" minWheels="-2" maxWheels="2"
     # initialRot1="-60.0690002" initialRot2="-37.8320007" initialRot3="-3.72300005" initialExtent="0" />
-    jw_re = re.compile('.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)".* cabinPos="([^"]+)".* initialRot1="([^"]+)".* initialRot2="([^"]+)".*')
+    jw_re = re.compile('.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)"' +
+                       '.* cabinPos="([^"]+)".* maxExtent="([^"]+)"' +
+                       '.* initialRot1="([^"]+)".* initialRot2="([^"]+)".*')
 
     def __init__(self, line):
         m = self.jw_re.match(line)
@@ -61,12 +69,33 @@ class SAM_jw(ObjPos):
         self.lon = float(m.group(2))
         self.hdg = float(m.group(3))
         self.length = float(m.group(4))
-        self.jw_hdg = float(m.group(5))
-        self.cab_hdg = float(m.group(6))
+        self.max_extend = float(m.group(5))
+        self.jw_hdg = float(m.group(6))
+        self.cab_hdg = float(m.group(7))
 
     def __repr__(self):
-        return f"sam_jw {self.lat} {self.lon} {self.length} {self.jw_hdg} {self.cab_hdg}"
+        return f"sam_jw {self.lat} {self.lon} {self.length}m {self.max_extend}m {self.jw_hdg}° {self.cab_hdg}°"
 
+    def apt_1500(self):
+        total_length = self.length + self.max_extend
+        lcode = -1
+        if self.length >= 11 and self.length <= 23:
+            lcode = 0
+        if self.length >= 14 and self.length <= 29:
+            lcode = 1
+        if self.length >= 17 and self.length <= 38:
+            lcode = 2
+        if self.length >= 20 and self.length <= 47:
+            lcode = 3
+
+        if lcode < 0:
+            log.error(f"can't find tunnel for {self}")
+            sys.exit(2)
+
+        jw_hdg = normalize_hdg(self.jw_hdg)
+        cab_hdg = normalize_hdg(self.jw_hdg + self.cab_hdg)
+
+        return f"1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} 2 {lcode} 0 {self.length:0.1f} {cab_hdg:0.1f}"
 
 class SAM():
     def __init__(self):
@@ -305,3 +334,10 @@ for dsf in dsf_list:
     dsf.remove_jetways()
     dsf.write()
 
+apt_lines = open("Earth nav data.pre_s2n/apt.dat", "r").readlines()
+with open("Earth nav data/apt.dat", "w") as f:
+    for l in apt_lines:
+        if l.find("99") == 0:
+            for jw in sam.jetways:
+                f.write(f"{jw.apt_1500()}\n")
+        f.write(l)
