@@ -35,6 +35,13 @@ def normalize_hdg(hdg):
         hdg += 360.0
     return hdg
 
+# position + dist@hdg, fortunately the earth is flat
+def pos_plus_vec(lat, lon, dist, hdg):
+    cos_lat = math.cos(math.radians(lat))
+    scale = 60 * 1852   # m per °
+    return lat + dist / scale * math.cos(math.radians(hdg)), \
+           lon + dist / (scale * cos_lat) * math.sin(math.radians(hdg))
+
 class ObjPos():
     eps_pos = 0.00001
     eps_hdg = 1.0
@@ -233,7 +240,22 @@ class Dsf():
         for o in self.object_refs:
             o.id = self.object_defs[o.id].id
 
+        # add rotundas
 
+    def add_rotundas(self, sam):
+        self.polygon_defs.append("POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/Jetway_2_solid.fac")
+        id = len(self.polygon_defs) - 1
+
+        for jw in sam.jetways:
+            lat1, lon1 = pos_plus_vec(jw.lat, jw.lon, 1.0, jw.jw_hdg)
+
+            self.polygon_refs.append(f"BEGIN_POLYGON {id} 5 3")
+            self.polygon_refs.append("BEGIN_WINDING");
+            self.polygon_refs.append(f"POLYGON_POINT {jw.lon:0.7f} {jw.lat:0.7f} 0.0")
+            self.polygon_refs.append(f"POLYGON_POINT {lon1:0.7f} {lat1:0.7f} 0.0")
+            self.polygon_refs.append("END_WINDING")
+            self.polygon_refs.append("END_POLYGON")
+       
 
 ###########
 ## main
@@ -335,8 +357,10 @@ if n_dsf_jw != n_sam_jw:
     sys.exit(2)
 
 for dsf in dsf_list:
-    dsf.remove_jetways()
-    dsf.write()
+    if dsf.n_jw > 0:
+        dsf.remove_jetways()
+        dsf.add_rotundas(sam)
+        dsf.write()
 
 apt_lines = open("Earth nav data.pre_s2n/apt.dat", "r").readlines()
 with open("Earth nav data/apt.dat", "w") as f:
