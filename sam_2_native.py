@@ -29,6 +29,9 @@ import logging
 
 log = logging.getLogger("sam_2_native")
 
+jw_code = 2
+jw_resource = ['Jetway_1_solid.fac', 'Jetway_1_glass.fac', 'Jetway_2_solid.fac', 'Jetway_2_glass.fac' ]
+
 def normalize_hdg(hdg):
     hdg = math.fmod(hdg, 360.0)
     if hdg < 0:
@@ -102,7 +105,7 @@ class SAM_jw(ObjPos):
         jw_hdg = normalize_hdg(self.jw_hdg)
         cab_hdg = normalize_hdg(self.jw_hdg + self.cab_hdg)
 
-        return f"1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} 2 {lcode} 0 {self.length:0.1f} {cab_hdg:0.1f}"
+        return f"1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} {jw_code} {lcode} 0 {self.length:0.1f} {cab_hdg:0.1f}"
 
 class SAM():
     def __init__(self):
@@ -112,9 +115,10 @@ class SAM():
             if l.find("<jetway name") > 0:
                 self.jetways.append(SAM_jw(l))
 
-    def match_jetways(self, obj_ref):
+    def match_jetways(self, obj_ref, obj_hdg):
         for jw in self.jetways:
             if jw.is_pos(obj_ref):
+                jw.obj_hdg = obj_hdg  # save heading of placed obj
                 return True
 
         return False
@@ -209,7 +213,7 @@ class Dsf():
 
     def filter_jetways(self, sam):
         for o in self.object_refs:
-            if sam.match_jetways(o):
+            if sam.match_jetways(o, o.hdg):
                 o.is_jetway = True
                 self.object_defs[o.id].is_jetway = True
                 self.n_jw += 1
@@ -240,14 +244,14 @@ class Dsf():
         for o in self.object_refs:
             o.id = self.object_defs[o.id].id
 
-        # add rotundas
-
     def add_rotundas(self, sam):
-        self.polygon_defs.append("POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/Jetway_2_solid.fac")
+        self.polygon_defs.append(f"POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/{jw_resource[jw_code]}")
         id = len(self.polygon_defs) - 1
 
+        rotunda_len = 1.5
+
         for jw in sam.jetways:
-            lat1, lon1 = pos_plus_vec(jw.lat, jw.lon, 1.0, jw.jw_hdg)
+            lat1, lon1 = pos_plus_vec(jw.lat, jw.lon, rotunda_len, jw.obj_hdg)
 
             self.polygon_refs.append(f"BEGIN_POLYGON {id} 5 3")
             self.polygon_refs.append("BEGIN_WINDING");
@@ -255,7 +259,11 @@ class Dsf():
             self.polygon_refs.append(f"POLYGON_POINT {lon1:0.7f} {lat1:0.7f} 0.0")
             self.polygon_refs.append("END_WINDING")
             self.polygon_refs.append("END_POLYGON")
-       
+
+            # center of rotunda
+            jw.lat = lat1
+            jw.lon = lon1
+
 
 ###########
 ## main
@@ -348,8 +356,6 @@ for dsf in dsf_list:
         for o in dsf.object_refs:
             if o.is_jetway:
                 print(o)
-
-        dsf.write()
 
 n_sam_jw = len(sam.jetways)
 if n_dsf_jw != n_sam_jw:
