@@ -29,9 +29,20 @@ import logging
 
 log = logging.getLogger("sam_2_native")
 
-class SAM_jw():
+class ObjPos():
     eps_pos = 0.00001
     eps_hdg = 1.0
+
+    lat = None
+    lon = None
+    hdg = None
+
+    def is_pos(self, obj_pos):
+        return (abs(self.lat - obj_pos.lat) < self.eps_pos and
+                abs(self.lon - obj_pos.lon) < self.eps_pos and
+                abs(self.hdg - obj_pos.hdg) < self.eps_hdg)
+
+class SAM_jw(ObjPos):
 
     #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258" 
     # height="4.33699989" wheelPos="9.35599995" cabinPos="17.6229992" cabinLength="2.84500003"
@@ -56,10 +67,6 @@ class SAM_jw():
     def __repr__(self):
         return f"sam_jw {self.lat} {self.lon} {self.length} {self.jw_hdg} {self.cab_hdg}"
 
-    def is_pos(self, obj_ref):
-        return (abs(self.lat - obj_ref.lat) < self.eps_pos and
-                abs(self.lon - obj_ref.lon) < self.eps_pos and
-                abs(self.hdg - obj_ref.hdg) < self.eps_hdg)
 
 class SAM():
     def __init__(self):
