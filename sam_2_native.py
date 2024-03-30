@@ -44,7 +44,7 @@ class ObjPos():
 
 class SAM_jw(ObjPos):
 
-    #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258" 
+    #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258"
     # height="4.33699989" wheelPos="9.35599995" cabinPos="17.6229992" cabinLength="2.84500003"
     # wheelDiameter="1.21200001" wheelDistance="1.79999995" sound="alarm2.ogg"
     # minRot1="-85" maxRot1="5" minRot2="-72" maxRot2="41" minRot3="-6" maxRot3="6"
@@ -83,7 +83,7 @@ class SAM():
 
         return False
 
-class ObjectRef():
+class ObjectRef(ObjPos):
     is_jetway = False
 
     def __init__(self, id, lat, lon, hdg):
@@ -93,6 +93,9 @@ class ObjectRef():
         self.hdg = hdg
 
     def __repr__(self):
+        if self.id < 0:
+            return "# deleted"
+
         return f"OBJECT {self.id} {self.lon} {self.lat} {self.hdg}"
 
 class ObjectDef():
@@ -103,6 +106,9 @@ class ObjectDef():
         self.name = name
 
     def __repr__(self):
+        if self.id < 0:
+            return f"# deleted OBJECT_DEF {self.name}"
+
         return f"OBJECT_DEF {self.name}"
 
 class Dsf():
@@ -159,22 +165,6 @@ class Dsf():
 
             active.append(l)
 
-        # # always create a backup
-        # if not os.path.isfile(self.fname_bck):
-            # shutil.copy2(self.fname, self.fname_bck)
-
-        # fname_new = self.fname + "-new"
-        # fname_new_1 = fname_new + "-1"
-        # tmp_files.append(fname_new_1)
-        # if not self.run_cmd(f'"{dsf_tool}" -text2dsf "{o4xp_dsf_txt}" "{fname_new_1}"'):
-            # return False
-
-        # if not self.run_cmd(f'"{cmd_7zip}" a -t7z -m0=lzma "{fname_new}" "{fname_new_1}"'):
-            # return False
-
-        # os.remove(self.fname)
-        # os.rename(fname_new, self.fname)
-        # open(self.cnv_marker, "w")  # create the marker
         return True
 
     def filter_jetways(self, sam):
@@ -193,6 +183,23 @@ class Dsf():
                     f.write(f"{o}\n")
 
         self.run_cmd(f'"{dsf_tool}" -text2dsf "{dsf_txt}" "{self.dsf_base}.dsf"')
+
+    def remove_jetways(self):
+        if self.n_jw == 0:
+            return
+
+        new_id = 0
+        for o in self.object_defs:
+            if o.is_jetway:
+                o.id = -1   # delete
+            else:
+                o.id = new_id
+                new_id += 1
+
+        # renumber in object_refs, deleted object propagates
+        for o in self.object_refs:
+            o.id = self.object_defs[o.id].id
+
 
 
 ###########
@@ -272,9 +279,11 @@ print("SAM jetways")
 for jw in sam.jetways:
     print(jw)
 
+n_dsf_jw = 0
 for dsf in dsf_list:
     dsf.filter_jetways(sam)
     if dsf.n_jw > 0:
+        n_dsf_jw += dsf.n_jw
         print(f"\nOBJECT_DEFs that are jetways in {dsf.fname}")
         for o in dsf.object_defs:
             if o.is_jetway:
@@ -286,3 +295,13 @@ for dsf in dsf_list:
                 print(o)
 
         dsf.write()
+
+n_sam_jw = len(sam.jetways)
+if n_dsf_jw != n_sam_jw:
+    log.error(f"# of jetways mismatch: dsf: {n_dsf_jw}, sam: {n_sam_jw}")
+    sys.exit(2)
+
+for dsf in dsf_list:
+    dsf.remove_jetways()
+    dsf.write()
+
