@@ -30,20 +30,30 @@ import logging
 log = logging.getLogger("sam_2_native")
 
 class SAM_jw():
-    eps = 0.00001
+    eps_pos = 0.00001
+    eps_hdg = 1.0
 
-    def __init__(self, lat, lon, length, jw_hdg, cab_hdg):
-        self.lat = lat
-        self.lon = lon
-        self.length = length
-        self.jw_hdg = jw_hdg
-        self.cab_hdg = cab_hdg
+    jw_re = re.compile('.*jetway name=.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)".* cabinPos="([^"]+)".* initialRot1="([^"]+)".* initialRot2="([^"]+)".*')
+
+    def __init__(self, line):
+        m = self.jw_re.match(line)
+        if m is None:
+            log.error(f"Cannot parse jetway line: '{line}'")
+
+        self.lat = float(m.group(1))
+        self.lon = float(m.group(2))
+        self.hdg = float(m.group(3))
+        self.length = float(m.group(4))
+        self.jw_hdg = float(m.group(5))
+        self.cab_hdg = float(m.group(6))
 
     def __repr__(self):
         return f"sam_jw {self.lat} {self.lon} {self.length} {self.jw_hdg} {self.cab_hdg}"
 
-    def is_pos(self, lat, lon):
-        return abs(self.lat - lat) < self.eps and abs(self.lon - lon) < self.eps
+    def is_pos(self, obj_ref):
+        return (abs(self.lat - obj_ref.lat) < self.eps_pos and
+                abs(self.lon - obj_ref.lon) < self.eps_pos and
+                abs(self.hdg - obj_ref.hdg) < self.eps_hdg)
 
 class SAM():
     def __init__(self):
@@ -51,22 +61,14 @@ class SAM():
 
         #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258" height="4.33699989" wheelPos="9.35599995" cabinPos="17.6229992" cabinLength="2.84500003" wheelDiameter="1.21200001" wheelDistance="1.79999995" sound="alarm2.ogg" minRot1="-85" maxRot1="5" minRot2="-72" maxRot2="41" minRot3="-6" maxRot3="6" minExtent="0" maxExtent="15.3999996" minWheels="-2" maxWheels="2" initialRot1="-60.0690002" initialRot2="-37.8320007" initialRot3="-3.72300005" initialExtent="0" />
 
-        jw_re = re.compile('.*jetway name=.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)".* cabinPos="([^"]+)".* initialRot1="([^"]+)".* initialRot2="([^"]+)".*')
         #jw_re = re.compile('.*jetway name=.* latitude="')
         for l in open("sam.xml", "r").readlines():
-            m = jw_re.match(l)
-            if m:
-                #print(l)
-                lat = float(m.group(1))
-                lon = float(m.group(2))
-                length = float(m.group(4))
-                jw_hdg = float(m.group(5))
-                cab_hdg = float(m.group(6))
-                self.jetways.append(SAM_jw(lat, lon, length, jw_hdg, cab_hdg))
+            if l.find("<jetway name") > 0:
+                self.jetways.append(SAM_jw(l))
 
-    def match_jetways(self, lat, lon):
+    def match_jetways(self, obj_ref):
         for jw in self.jetways:
-            if jw.is_pos(lat, lon):
+            if jw.is_pos(obj_ref):
                 return True
 
         return False
@@ -167,7 +169,7 @@ class Dsf():
 
     def filter_jetways(self, sam):
         for o in self.object_refs:
-            if sam.match_jetways(o.lat, o.lon):
+            if sam.match_jetways(o):
                 o.is_jetway = True
                 self.object_defs[o.id].is_jetway = True
                 self.n_jw += 1
