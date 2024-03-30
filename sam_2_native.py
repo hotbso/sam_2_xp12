@@ -166,12 +166,11 @@ class Dsf():
         self.run_cmd(f'"{dsf_tool}" -dsf2text "{self.fname}" "{dsf_txt}"')
 
         dsf_txt_lines = open(dsf_txt, "r").readlines()
-        self.before_obj_defs = []
         self.object_defs = []
-        self.before_obj_refs = []
         self.object_refs = []
+        self.polygon_defs = []
+        self.polygon_refs = []
         self.rest = []
-        active = self.before_obj_defs
 
         for l in dsf_txt_lines:
             l = l.rstrip()
@@ -180,19 +179,24 @@ class Dsf():
 
             #print(l)
             words = l.split()
-            if len(words) > 0 and words[0] == "OBJECT_DEF":
+            if words[0] == "OBJECT_DEF":
                 self.object_defs.append(ObjectDef(obj_id, words[1]))
                 obj_id += 1
-                active = self.before_obj_refs
                 continue
 
-            if len(words) > 0 and words[0] == "OBJECT":
+            if words[0] == "OBJECT":
                 self.object_refs.append(ObjectRef(int(words[1]), float(words[3]), float(words[2]), float(words[4])))
-                active = self.rest
                 continue
 
+            if words[0] == "POLYGON_DEF":
+                self.polygon_defs.append(l)
+                continue
 
-            active.append(l)
+            if words[0].find("POLYGON") >= 0 or words[0].find("WINDING") >= 0:
+                self.polygon_refs.append(l)
+                continue
+
+            self.rest.append(l)
 
         return True
 
@@ -206,8 +210,8 @@ class Dsf():
     def write(self):
         dsf_txt = self.dsf_base + ".txt"
         with open(dsf_txt, "w") as f:
-            for section in [self.before_obj_defs, self.object_defs,
-                            self. before_obj_refs, self.object_refs, self.rest]:
+            for section in [self.rest, self.object_defs, self.polygon_defs,
+                            self.object_refs, self.polygon_refs]:
                 for o in section:
                     f.write(f"{o}\n")
 
