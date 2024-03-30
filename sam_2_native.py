@@ -94,15 +94,13 @@ class ObjectDef():
         return f"OBJECT_DEF {self.name}"
 
 class Dsf():
+    n_jw = 0
+    n_docks = 0
 
     def __init__(self, fname):
-        self.fname = fname.replace('\\', '/')
-        self.fname_bck = self.fname + "-pre_sam_2_native"
-        self.cnv_marker = self.fname + "-sam_2_native_done"
-        self.dsf_base, _ = os.path.splitext(os.path.basename(self.fname))
-        self.rdata = []
-        self.is_converted = os.path.isfile(self.cnv_marker)
-        self.has_backup = os.path.isfile(self.fname_bck)
+        self.fname = fname.replace('\\', '/')   # src folder
+        base, _ = os.path.splitext(self.fname) # dst folder
+        self.dsf_base = base.replace("Earth nav data.pre_s2n", "Earth nav data")
 
     def __repr__(self):
         return f"{self.fname}"
@@ -112,19 +110,13 @@ class Dsf():
         out = subprocess.run(shlex.split(cmd), capture_output = True)
         if out.returncode != 0:
             log.error(f"Can't run {cmd}: {out}")
-            return False
-
-        return True
+            sys.exit(2)
 
     def parse(self):
-        i = self.fname.find("/Earth nav data/")
-        assert i > 0, "invalid filename"
-
         obj_id = 0
-        dsf_txt = self.dsf_base + ".txt"
+        dsf_txt = self.dsf_base + ".txt_pre"
 
-        if not self.run_cmd(f'"{dsf_tool}" -dsf2text "{self.fname}" "{dsf_txt}"'):
-            return False
+        self.run_cmd(f'"{dsf_tool}" -dsf2text "{self.fname}" "{dsf_txt}"')
 
         dsf_txt_lines = open(dsf_txt, "r").readlines()
         self.before_obj_defs = []
@@ -155,13 +147,6 @@ class Dsf():
 
             active.append(l)
 
-        if False:
-            for i in range(len(object_defs)):
-                print(f"{i} {self.object_defs[i]}")
-
-            for o_r in self.object_refs:
-                print(o_r)
-
         # # always create a backup
         # if not os.path.isfile(self.fname_bck):
             # shutil.copy2(self.fname, self.fname_bck)
@@ -185,42 +170,24 @@ class Dsf():
             if sam.match_jetways(o.lat, o.lon):
                 o.is_jetway = True
                 self.object_defs[o.id].is_jetway = True
+                self.n_jw += 1
 
     def write(self):
-        with open("new.txt", "w") as f:
+        dsf_txt = self.dsf_base + ".txt"
+        with open(dsf_txt, "w") as f:
             for section in [self.before_obj_defs, self.object_defs,
                             self. before_obj_refs, self.object_refs, self.rest]:
                 for o in section:
                     f.write(f"{o}\n")
 
-            # for l in self.before_obj_defs:
-                # f.write(f"{l)
-            # for o in self.object_defs:
-                # f.write(f"{o}")
-            # for l in self.before_obj_refs:
-                # f.write(l)
-            # for o in self.object_refs:
-                # f.write(f"{o}")
-            # for l in self.rest:
-                # f.write(l)
-
-    # def undo(self):
-        # os.remove(self.fname)
-        # os.rename(self.fname_bck, self.fname)
-        # try:
-            # os.remove(self.cnv_marker)
-        # except:
-            # pass
-
-    # def cleanup(self):
-        # os.remove(self.fname_bck)
+        self.run_cmd(f'"{dsf_tool}" -text2dsf "{dsf_txt}" "{self.dsf_base}.dsf"')
 
 
 ###########
 ## main
 ###########
 logging.basicConfig(level=logging.INFO,
-                    handlers=[logging.FileHandler(filename = "o4x_2_xp12.log", mode='w'),
+                    handlers=[logging.FileHandler(filename = "sam_2_native.log", mode='w'),
                               logging.StreamHandler()])
 
 log.info(f"Version: {VERSION}")
@@ -233,23 +200,8 @@ dry_run = False
 def usage():
     log.error( \
         """sam_2_native [-rect lower_left,upper_right] [-subset string] [-limit n] [-dry_run] [-root xp12_root] convert|undo|cleanup
-            -rect       restrict to rectangle, corners format is lat,lon, e.g. +50+009
-            -subset     matching filenames must contain the string
             -dry_run    only list matching files
-            -root       override root
-            -limit n    limit operation to n dsf files
 
-            convert     you guessed it
-            undo        undo conversions
-            cleanup     remove backup files
-
-            convert, undo, cleanup are mutually exclusive
-
-            Examples:
-                sam_2_native -rect +36+019,+40+025 convert
-                sam_2_native -subset z_ao_eur -dry_run cleanup
-                sam_2_native -root E:/XP12-test -subset z_ao_eur -limit 1000 convert
-                sam_2_native -rect +36+019,+40+025 -cleanup
         """)
     sys.exit(2)
 
@@ -259,29 +211,6 @@ i = 1
 while i < len(sys.argv):
     if sys.argv[i] == "-dry_run":
         dry_run = True
-
-    elif sys.argv[i] == "convert":
-        if mode is not None:
-            usage()
-        mode = DsfList.M_CONVERT
-
-    elif sys.argv[i] == "redo":
-        if mode is not None:
-            usage()
-        mode = DsfList.M_REDO
-
-    elif sys.argv[i] == "undo":
-        if mode is not None:
-            usage()
-        mode = DsfList.M_UNDO
-
-    elif sys.argv[i] == "cleanup":
-        if mode is not None:
-            usage()
-        mode = DsfList.M_CLEANUP
-
-    else:
-        usage()
 
     i = i + 1
 
@@ -295,31 +224,53 @@ if not os.path.isfile(dsf_tool):
     sanity_checks = False
     log.error(f"dsf_tool: '{dsf_tool}' is not pointing to a file")
 
+if not os.path.isdir("Earth nav data"):
+    sanity_checks = False
+    log.error(f'No "Earth nav data" folder found')
+
+if not os.path.isfile("Earth nav data/apt.dat"):
+    sanity_checks = False
+    log.error(f'No "Earth nav data/apt.dat" file found')
 
 if not sanity_checks:
     sys.exit(2)
 
 log.info(f"dsf_tool:  {dsf_tool}")
 
+src_dir = "Earth nav data.pre_s2n"
+if not os.path.isdir(src_dir):
+    src_dir = shutil.copytree("Earth nav data", "Earth nav data.pre_s2n")
+    log.info(f'Created backup copy "{src_dir}"')
+
 sam = SAM()
 
-dsf = Dsf("./Earth nav data/+40+010/+49+011.dsf")
-dsf.parse()
+dsf_list = []
+for dir, dirs, files in os.walk(src_dir):
+    for f in files:
+        _, ext = os.path.splitext(f)
+        if ext != '.dsf':
+            continue
+
+        full_name = os.path.join(dir, f)
+        dsf = Dsf(full_name)
+        dsf.parse()
+        dsf_list.append(dsf)
 
 print("SAM jetways")
 for jw in sam.jetways:
     print(jw)
 
-dsf.filter_jetways(sam)
+for dsf in dsf_list:
+    dsf.filter_jetways(sam)
+    if dsf.n_jw > 0:
+        print(f"\nOBJECT_DEFs that are jetways in {dsf.fname}")
+        for o in dsf.object_defs:
+            if o.is_jetway:
+                print(o)
 
-print("\nOBJECT_DEFs that are jetways")
-for o in dsf.object_defs:
-    if o.is_jetway:
-        print(o)
+        print(f"\nOBJECTs that are jetways in {dsf.fname}")
+        for o in dsf.object_refs:
+            if o.is_jetway:
+                print(o)
 
-print("\nOBJECTs that are jetways")
-for o in dsf.object_refs:
-    if o.is_jetway:
-        print(o)
-
-dsf.write()
+        dsf.write()
