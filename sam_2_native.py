@@ -33,7 +33,13 @@ class SAM_jw():
     eps_pos = 0.00001
     eps_hdg = 1.0
 
-    jw_re = re.compile('.*jetway name=.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)".* cabinPos="([^"]+)".* initialRot1="([^"]+)".* initialRot2="([^"]+)".*')
+    #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258" 
+    # height="4.33699989" wheelPos="9.35599995" cabinPos="17.6229992" cabinLength="2.84500003"
+    # wheelDiameter="1.21200001" wheelDistance="1.79999995" sound="alarm2.ogg"
+    # minRot1="-85" maxRot1="5" minRot2="-72" maxRot2="41" minRot3="-6" maxRot3="6"
+    # minExtent="0" maxExtent="15.3999996" minWheels="-2" maxWheels="2"
+    # initialRot1="-60.0690002" initialRot2="-37.8320007" initialRot3="-3.72300005" initialExtent="0" />
+    jw_re = re.compile('.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)".* cabinPos="([^"]+)".* initialRot1="([^"]+)".* initialRot2="([^"]+)".*')
 
     def __init__(self, line):
         m = self.jw_re.match(line)
@@ -59,9 +65,6 @@ class SAM():
     def __init__(self):
         self.jetways = []
 
-        #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258" height="4.33699989" wheelPos="9.35599995" cabinPos="17.6229992" cabinLength="2.84500003" wheelDiameter="1.21200001" wheelDistance="1.79999995" sound="alarm2.ogg" minRot1="-85" maxRot1="5" minRot2="-72" maxRot2="41" minRot3="-6" maxRot3="6" minExtent="0" maxExtent="15.3999996" minWheels="-2" maxWheels="2" initialRot1="-60.0690002" initialRot2="-37.8320007" initialRot3="-3.72300005" initialExtent="0" />
-
-        #jw_re = re.compile('.*jetway name=.* latitude="')
         for l in open("sam.xml", "r").readlines():
             if l.find("<jetway name") > 0:
                 self.jetways.append(SAM_jw(l))
