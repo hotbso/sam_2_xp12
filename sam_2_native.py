@@ -60,6 +60,7 @@ class ObjPos():
         return math.sqrt(dlat_m**2 + dlon_m**2), abs(self.hdg - obj_pos.hdg)
 
 class SAM_jw(ObjPos):
+    obj_hdg = None  # gets assigned if jw is matched by an object
 
     #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258"
     # height="4.33699989" wheelPos="9.35599995" cabinPos="17.6229992" cabinLength="2.84500003"
@@ -81,7 +82,13 @@ class SAM_jw(ObjPos):
         self.hdg = float(m.group(3))
         self.length = float(m.group(4))
         self.max_extend = float(m.group(5))
-        self.jw_hdg = float(m.group(6))
+
+        initialRot1 = m.group(6)
+        if initialRot1 == "0":      # 0 = undefined?
+            self.jw_hdg = self.hdg
+        else:
+            self.jw_hdg = float(initialRot1)
+
         self.cab_hdg = float(m.group(7))
 
     def __repr__(self):
@@ -141,7 +148,7 @@ class SAM():
     def match_jetways(self, obj_ref, obj_hdg):
         for jw in self.jetways:
             d, d_hdg = jw.distance(obj_ref)
-            if d < 0.5 and d_hdg < 1:
+            if d < 0.5: # and d_hdg < 1:
                 jw.obj_hdg = obj_hdg  # save heading of placed obj
                 return True
 
@@ -225,7 +232,7 @@ class Dsf():
             #print(l)
             words = l.split()
             if words[0] == "OBJECT_DEF":
-                self.object_defs.append(ObjectDef(obj_id, words[1]))
+                self.object_defs.append(ObjectDef(obj_id, l[11:]))   # object def can contain blanks
                 obj_id += 1
                 continue
 
@@ -293,6 +300,8 @@ class Dsf():
         rotunda_len = 1.5
 
         for jw in sam.jetways:
+            if jw.obj_hdg is None:
+                continue    # sam definition is not matched by an object
             lat1, lon1 = pos_plus_vec(jw.lat, jw.lon, rotunda_len, jw.obj_hdg)
 
             self.polygon_refs.append(f"BEGIN_POLYGON {id} 5 3")
@@ -437,12 +446,10 @@ for dsf in dsf_list:
 
 log.info(f"Identified {n_dsf_jw} jetways and {n_dsf_docks} docks in .dsf files")
 if n_dsf_jw != n_sam_jw:
-    log.error(f"# of jetways mismatch: dsf: {n_dsf_jw}, sam: {n_sam_jw}")
-    sys.exit(2)
+    log.warning(f"# of jetways mismatch: dsf: {n_dsf_jw}, sam: {n_sam_jw}")
 
 if n_dsf_docks != n_sam_docks:
-    log.error(f"# of docks mismatch: dsf: {n_dsf_docks}, sam: {n_sam_docks}")
-    sys.exit(2)
+    log.warning(f"# of docks mismatch: dsf: {n_dsf_docks}, sam: {n_sam_docks}")
 
 log.info("Removing sam jetways and docks from dsf and creating rotundas")
 for dsf in dsf_list:
