@@ -496,5 +496,18 @@ with open("Earth nav data/apt.dat", "w") as f:
                 f.write(f"{jw.apt_1500()}\n")
         f.write(l)
 
+sam_lib_refs = []
+for dsf in dsf_list:
+    for o in dsf.object_defs:
+        if o.id >= 0 and o.name.find("SAM_Library") >= 0:
+            sam_lib_refs.append(o)
+
+if len (sam_lib_refs) > 0:
+    log.warning("There are still refereces to SAM_Library")
+    for o in sam_lib_refs:
+        log.info(f" {o}")
+else:
+    log.info("No more refereces to SAM_Library found!")
+
 open("Earth nav data/use_autodgs", "w")
 log.info('done!')
