@@ -31,7 +31,7 @@ import logging
 
 log = logging.getLogger("sam_2_native")
 
-jw_code = 2
+jw_type = None
 jw_resource = ['Jetway_1_solid.fac', 'Jetway_1_glass.fac', 'Jetway_2_solid.fac', 'Jetway_2_glass.fac' ]
 
 deg_2_m = 60 * 1982.0   # ° lat to m
@@ -53,7 +53,7 @@ class ObjPos():
     lon = None
     hdg = None
 
-    def distance(self, obj_pos): # m, delta_hdg
+    def distance(self, obj_pos): # -> m, delta_hdg
         dlat_m = deg_2_m * (self.lat - obj_pos.lat)
         dlon_m = deg_2_m * (self.lon - obj_pos.lon) * math.cos(math.radians(self.lat))
 
@@ -106,7 +106,7 @@ class SAM_jw(ObjPos):
         jw_hdg = normalize_hdg(self.jw_hdg)
         cab_hdg = normalize_hdg(self.jw_hdg + self.cab_hdg)
 
-        return f"1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} {jw_code} {lcode} " + \
+        return f"1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} {jw_type} {lcode} " + \
                f"{jw_hdg:0.1f} {self.length:0.1f} {cab_hdg:0.1f}"
 
 class SAM_dock(ObjPos):
@@ -287,7 +287,7 @@ class Dsf():
         return True # changed
 
     def add_rotundas(self, sam):
-        self.polygon_defs.append(f"POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/{jw_resource[jw_code]}")
+        self.polygon_defs.append(f"POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/{jw_resource[jw_type]}")
         id = len(self.polygon_defs) - 1
 
         rotunda_len = 1.5
@@ -323,23 +323,31 @@ dry_run = False
 
 def usage():
     log.error( \
-        """sam_2_native [-rect lower_left,upper_right] [-subset string] [-limit n] [-dry_run] [-root xp12_root] convert|undo|cleanup
-            -dry_run    only list matching files
-
-        """)
+        """sam_2_native -jw_type 0..3 [-verbose]
+            type codes:
+                0: light-solid
+                1: light-glass
+                2: dark-solid
+                3: dark-glass
+         """)
     sys.exit(2)
 
 mode = None
 
 i = 1
 while i < len(sys.argv):
-    if sys.argv[i] == "-dry_run":
-        dry_run = True
+    if sys.argv[i] == "-jw_type":
+        i = i + 1
+        if i >= len(sys.argv):
+            usage()
+        jw_type = int(sys.argv[i])
+    elif sys.argv[i] == "-verbose":
+        verbose = 1
 
     i = i + 1
 
-# if mode is None:
-    # usage()
+if jw_type is None:
+    usage()
 
 dsf_tool = CFG['TOOLS']['dsftool']
 
@@ -372,12 +380,12 @@ n_sam_docks = len(sam.docks)
 log.info(f"Found {n_sam_jw} jetways and {n_sam_docks} docks in sam.xml")
 
 if verbose > 0:
-    print("SAM jetways")
+    log.info("SAM jetways and dock")
     for jw in sam.jetways:
-        print(jw)
+        log.info(f" {jw}")
 
     for d in sam.docks:
-        print(d)
+        log.info(f" {d}")
 
 dsf_list = []
 for dir, dirs, files in os.walk(src_dir):
@@ -400,28 +408,32 @@ for dsf in dsf_list:
     if dsf.n_jw > 0:
         n_dsf_jw += dsf.n_jw
         if verbose > 0:
-            print(f"\nOBJECT_DEFs that are jetways in {dsf.fname}")
+            log.info("")
+            log.info(f"OBJECT_DEFs that are jetways in {dsf.fname}")
             for o in dsf.object_defs:
                 if o.is_jetway:
-                    print(o)
+                    log.info(f" {o}")
 
-            print(f"\nOBJECTs that are jetways in {dsf.fname}")
+            log.info("")
+            log.info(f"OBJECTs that are jetways in {dsf.fname}")
             for o in dsf.object_refs:
                 if o.is_jetway:
-                    print(o)
+                    log.info(f" {o}")
 
     if dsf.n_docks > 0:
         n_dsf_docks += dsf.n_docks
         if verbose > 0:
-            print(f"\nOBJECT_DEFs that are docks in {dsf.fname}")
+            log.info("")
+            log.info(f"OBJECT_DEFs that are docks in {dsf.fname}")
             for o in dsf.object_defs:
                 if o.is_dock:
-                    print(o)
+                    log.info(f" {o}")
 
-            print(f"\nOBJECTs that are docks in {dsf.fname}")
+            log.info("")
+            log.info(f"OBJECTs that are docks in {dsf.fname}")
             for o in dsf.object_refs:
                 if o.is_dock:
-                    print(o)
+                    log.info(f" {o}")
 
 log.info(f"Identified {n_dsf_jw} jetways and {n_dsf_docks} docks in .dsf files")
 if n_dsf_jw != n_sam_jw:
