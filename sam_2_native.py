@@ -26,7 +26,6 @@ verbose = 0
 
 import platform, sys, os, os.path, math, shlex, subprocess, shutil, re
 
-import configparser
 import logging
 
 log = logging.getLogger("sam_2_native")
@@ -354,10 +353,6 @@ logging.basicConfig(level=logging.INFO,
 log.info(f"Version: {VERSION}")
 log.info(f"args: {sys.argv}")
 
-CFG = configparser.ConfigParser()
-CFG.read('sam_2_native.ini')
-dry_run = False
-
 def usage():
     log.error( \
         """sam_2_native -jw_type 0..3 [-jw_match_radius d] [-verbose]
@@ -396,7 +391,9 @@ while i < len(sys.argv):
 if jw_type is None:
     usage()
 
-dsf_tool = CFG['TOOLS']['dsftool']
+dsf_tool = os.path.join(os.path.dirname(sys.argv[0]), 'dsftool')
+if platform.system() == 'Windows':
+    dsf_tool += ".exe"
 
 sanity_checks = True
 if not os.path.isfile(dsf_tool):
