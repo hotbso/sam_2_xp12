@@ -33,6 +33,7 @@ log = logging.getLogger("sam_2_native")
 
 jw_type = None
 jw_resource = ['Jetway_1_solid.fac', 'Jetway_1_glass.fac', 'Jetway_2_solid.fac', 'Jetway_2_glass.fac' ]
+jw_match_radius = 0.5
 
 deg_2_m = 60 * 1982.0   # ° lat to m
 
@@ -68,31 +69,33 @@ class SAM_jw(ObjPos):
     # minRot1="-85" maxRot1="5" minRot2="-72" maxRot2="41" minRot3="-6" maxRot3="6"
     # minExtent="0" maxExtent="15.3999996" minWheels="-2" maxWheels="2"
     # initialRot1="-60.0690002" initialRot2="-37.8320007" initialRot3="-3.72300005" initialExtent="0" />
-    jw_re = re.compile('.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)"' +
-                       '.* cabinPos="([^"]+)".* maxExtent="([^"]+)"' +
+    jw_re = re.compile('.* name="([^"]+).* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)"' +
+                       '.* height="([^"]+)".* cabinPos="([^"]+)".* maxExtent="([^"]+)"' +
                        '.* initialRot1="([^"]+)".* initialRot2="([^"]+)".*')
 
     def __init__(self, line):
         m = self.jw_re.match(line)
         if m is None:
             log.error(f"Cannot parse jetway line: '{line}'")
+        self.name = m.group(1)
+        self.lat = float(m.group(2))
+        self.lon = float(m.group(3))
+        self.hdg = float(m.group(4))
+        self.height = float(m.group(5))
+        self.length = float(m.group(6))
+        self.max_extend = float(m.group(7))
 
-        self.lat = float(m.group(1))
-        self.lon = float(m.group(2))
-        self.hdg = float(m.group(3))
-        self.length = float(m.group(4))
-        self.max_extend = float(m.group(5))
-
-        initialRot1 = m.group(6)
+        initialRot1 = m.group(8)
         if initialRot1 == "0":      # 0 = undefined?
             self.jw_hdg = self.hdg
         else:
             self.jw_hdg = float(initialRot1)
 
-        self.cab_hdg = float(m.group(7))
+        self.cab_hdg = float(m.group(9))
 
     def __repr__(self):
-        return f"sam_jw {self.lat} {self.lon} {self.length}m {self.max_extend}m {self.jw_hdg}° {self.cab_hdg}°"
+        return f"sam_jw '{self.name}' {self.lat} {self.lon} {self.length}m {self.max_extend}m " +\
+               f"{self.jw_hdg}° {self.cab_hdg}°"
 
     def apt_1500(self):
         total_length = self.length + self.max_extend
@@ -113,8 +116,8 @@ class SAM_jw(ObjPos):
         jw_hdg = normalize_hdg(self.jw_hdg)
         cab_hdg = normalize_hdg(self.jw_hdg + self.cab_hdg)
 
-        return f"1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} {jw_type} {lcode} " + \
-               f"{jw_hdg:0.1f} {self.length:0.1f} {cab_hdg:0.1f}"
+        return f"# '{self.name}'\n1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} " + \
+               f"{jw_type} {lcode} {jw_hdg:0.1f} {self.length:0.1f} {cab_hdg:0.1f}"
 
 class SAM_dock(ObjPos):
     #<dock id="GA 2" latitude="49.496759842417845" longitude="11.069054733293136"
@@ -141,14 +144,18 @@ class SAM():
 
         for l in open("sam.xml", "r").readlines():
             if l.find("<jetway name") > 0:
-                self.jetways.append(SAM_jw(l))
+                jw = SAM_jw(l)
+                if jw.height > 6.0: # e.g A380 upper deck
+                    continue
+                self.jetways.append(jw)
             elif l.find("<dock id") > 0:
                 self.docks.append(SAM_dock(l))
 
     def match_jetways(self, obj_ref, obj_hdg):
         for jw in self.jetways:
             d, d_hdg = jw.distance(obj_ref)
-            if d < 0.5: # and d_hdg < 1:
+            if d < jw_match_radius: # and d_hdg < 1:
+                obj_ref.sam_jw = jw
                 jw.obj_hdg = obj_hdg  # save heading of placed obj
                 return True
 
@@ -165,6 +172,7 @@ class SAM():
 class ObjectRef(ObjPos):
     is_jetway = False
     is_dock = False
+    sam_jw = None  # backlink to sam object
 
     def __init__(self, id, lat, lon, hdg):
         self.id = id
@@ -301,9 +309,12 @@ class Dsf():
 
         for jw in sam.jetways:
             if jw.obj_hdg is None:
+                log.warning(f"Unmatched sam jetway: {jw}")
                 continue    # sam definition is not matched by an object
+
             lat1, lon1 = pos_plus_vec(jw.lat, jw.lon, rotunda_len, jw.obj_hdg)
 
+            #self.polygon_refs.append(f"# '{jw.name}'\nBEGIN_POLYGON {id} 5 3")
             self.polygon_refs.append(f"BEGIN_POLYGON {id} 5 3")
             self.polygon_refs.append("BEGIN_WINDING");
             self.polygon_refs.append(f"POLYGON_POINT {jw.lon:0.7f} {jw.lat:0.7f} 0.0")
@@ -332,12 +343,17 @@ dry_run = False
 
 def usage():
     log.error( \
-        """sam_2_native -jw_type 0..3 [-verbose]
-            type codes:
+        """sam_2_native -jw_type 0..3 [-jw_match_radius d] [-verbose]
+            -jw_type 0..3
                 0: light-solid
                 1: light-glass
                 2: dark-solid
                 3: dark-glass
+ 
+            -jw_match_radius d:
+                distance in meters to match sam coordnates with secenery objects
+                default: 0.5
+                
          """)
     sys.exit(2)
 
@@ -350,6 +366,11 @@ while i < len(sys.argv):
         if i >= len(sys.argv):
             usage()
         jw_type = int(sys.argv[i])
+    elif sys.argv[i] == "-jw_match_radius":
+        i = i + 1
+        if i >= len(sys.argv):
+            usage()
+        jw_match_radius = float(sys.argv[i])
     elif sys.argv[i] == "-verbose":
         verbose = 1
 
@@ -388,7 +409,7 @@ n_sam_jw = len(sam.jetways)
 n_sam_docks = len(sam.docks)
 log.info(f"Found {n_sam_jw} jetways and {n_sam_docks} docks in sam.xml")
 
-if verbose > 0:
+if verbose > 1:
     log.info("SAM jetways and dock")
     for jw in sam.jetways:
         log.info(f" {jw}")
@@ -418,16 +439,16 @@ for dsf in dsf_list:
         n_dsf_jw += dsf.n_jw
         if verbose > 0:
             log.info("")
-            log.info(f"OBJECT_DEFs that are jetways in {dsf.fname}")
+            log.info(f"OBJECT_DEFs that belong to jetways in {dsf.fname}")
             for o in dsf.object_defs:
                 if o.is_jetway:
-                    log.info(f" {o}")
+                    log.info(f"{o.id:3d}: {o}")
 
             log.info("")
-            log.info(f"OBJECTs that are jetways in {dsf.fname}")
+            log.info(f"OBJECTs that belong to jetways in {dsf.fname}")
             for o in dsf.object_refs:
                 if o.is_jetway:
-                    log.info(f" {o}")
+                    log.info(f" {o.sam_jw.name:8} {o}")
 
     if dsf.n_docks > 0:
         n_dsf_docks += dsf.n_docks
@@ -445,11 +466,6 @@ for dsf in dsf_list:
                     log.info(f" {o}")
 
 log.info(f"Identified {n_dsf_jw} jetways and {n_dsf_docks} docks in .dsf files")
-if n_dsf_jw != n_sam_jw:
-    log.warning(f"# of jetways mismatch: dsf: {n_dsf_jw}, sam: {n_sam_jw}")
-
-if n_dsf_docks != n_sam_docks:
-    log.warning(f"# of docks mismatch: dsf: {n_dsf_docks}, sam: {n_sam_docks}")
 
 log.info("Removing sam jetways and docks from dsf and creating rotundas")
 for dsf in dsf_list:
