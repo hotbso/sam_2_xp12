@@ -186,6 +186,21 @@ class ObjectRef(ObjPos):
 
         return f"OBJECT {self.id} {self.lon} {self.lat} {self.hdg}"
 
+class ObjectRefMsl(ObjectRef):
+
+    def __init__(self, id, lat, lon, hdg, msl):
+        self.id = id
+        self.lat = lat
+        self.lon = lon
+        self.hdg = hdg
+        self.msl = msl
+
+    def __repr__(self):
+        if self.id < 0:
+            return "# deleted"
+
+        return f"OBJECT_MSL {self.id} {self.lon} {self.lat} {self.hdg} {self.msl}"
+
 class ObjectDef():
     is_jetway = False
     is_dock = False
@@ -246,6 +261,11 @@ class Dsf():
 
             if words[0] == "OBJECT":
                 self.object_refs.append(ObjectRef(int(words[1]), float(words[3]), float(words[2]), float(words[4])))
+                continue
+
+            if words[0] == "OBJECT_MSL":
+                self.object_refs.append(ObjectRefMsl(int(words[1]), float(words[3]), float(words[2]),\
+                                        float(words[4]), float(words[5])))
                 continue
 
             if words[0] == "POLYGON_DEF":
@@ -314,8 +334,7 @@ class Dsf():
 
             lat1, lon1 = pos_plus_vec(jw.lat, jw.lon, rotunda_len, jw.obj_hdg)
 
-            #self.polygon_refs.append(f"# '{jw.name}'\nBEGIN_POLYGON {id} 5 3")
-            self.polygon_refs.append(f"BEGIN_POLYGON {id} 5 3")
+            self.polygon_refs.append(f"# '{jw.name}'\nBEGIN_POLYGON {id} 5 3")
             self.polygon_refs.append("BEGIN_WINDING");
             self.polygon_refs.append(f"POLYGON_POINT {jw.lon:0.7f} {jw.lat:0.7f} 0.0")
             self.polygon_refs.append(f"POLYGON_POINT {lon1:0.7f} {lat1:0.7f} 0.0")
@@ -349,11 +368,11 @@ def usage():
                 1: light-glass
                 2: dark-solid
                 3: dark-glass
- 
+
             -jw_match_radius d:
                 distance in meters to match sam coordnates with secenery objects
                 default: 0.5
-                
+
          """)
     sys.exit(2)
 
