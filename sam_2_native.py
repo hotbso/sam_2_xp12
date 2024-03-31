@@ -90,6 +90,8 @@ class SAM_jw(ObjPos):
         else:
             self.jw_hdg = float(initialRot1)
 
+        self.jw_hdg = self.hdg + float(initialRot1)
+
         self.cab_hdg = float(m.group(9))
 
     def __repr__(self):
@@ -142,9 +144,9 @@ class SAM():
         self.docks = []
 
         for l in open("sam.xml", "r").readlines():
-            if l.find("<jetway name") > 0:
+            if l.find("<jetway ") > 0:
                 jw = SAM_jw(l)
-                if jw.height > 6.0: # e.g A380 upper deck
+                if jw.height > 6.0 or jw.height < 4.0: # e.g A380 upper deck
                     continue
                 self.jetways.append(jw)
             elif l.find("<dock id") > 0:
