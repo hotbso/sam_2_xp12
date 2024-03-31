@@ -22,6 +22,8 @@
 
 VERSION = "1"
 
+verbose = 0
+
 import platform, sys, os, os.path, math, shlex, subprocess, shutil, re
 
 import configparser
@@ -32,6 +34,8 @@ log = logging.getLogger("sam_2_native")
 jw_code = 2
 jw_resource = ['Jetway_1_solid.fac', 'Jetway_1_glass.fac', 'Jetway_2_solid.fac', 'Jetway_2_glass.fac' ]
 
+deg_2_m = 60 * 1982.0   # ° lat to m
+
 def normalize_hdg(hdg):
     hdg = math.fmod(hdg, 360.0)
     if hdg < 0:
@@ -41,22 +45,19 @@ def normalize_hdg(hdg):
 # position + dist@hdg, fortunately the earth is flat
 def pos_plus_vec(lat, lon, dist, hdg):
     cos_lat = math.cos(math.radians(lat))
-    scale = 60 * 1852   # m per °
-    return lat + dist / scale * math.cos(math.radians(hdg)), \
-           lon + dist / (scale * cos_lat) * math.sin(math.radians(hdg))
+    return lat + dist / deg_2_m * math.cos(math.radians(hdg)), \
+           lon + dist / (deg_2_m * cos_lat) * math.sin(math.radians(hdg))
 
 class ObjPos():
-    eps_pos = 0.00001
-    eps_hdg = 1.0
-
     lat = None
     lon = None
     hdg = None
 
-    def is_pos(self, obj_pos):
-        return (abs(self.lat - obj_pos.lat) < self.eps_pos and
-                abs(self.lon - obj_pos.lon) < self.eps_pos and
-                abs(self.hdg - obj_pos.hdg) < self.eps_hdg)
+    def distance(self, obj_pos): # m, delta_hdg
+        dlat_m = deg_2_m * (self.lat - obj_pos.lat)
+        dlon_m = deg_2_m * (self.lon - obj_pos.lon) * math.cos(math.radians(self.lat))
+
+        return math.sqrt(dlat_m**2 + dlon_m**2), abs(self.hdg - obj_pos.hdg)
 
 class SAM_jw(ObjPos):
 
@@ -105,26 +106,58 @@ class SAM_jw(ObjPos):
         jw_hdg = normalize_hdg(self.jw_hdg)
         cab_hdg = normalize_hdg(self.jw_hdg + self.cab_hdg)
 
-        return f"1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} {jw_code} {lcode} 0 {self.length:0.1f} {cab_hdg:0.1f}"
+        return f"1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} {jw_code} {lcode} " + \
+               f"{jw_hdg:0.1f} {self.length:0.1f} {cab_hdg:0.1f}"
+
+class SAM_dock(ObjPos):
+    #<dock id="GA 2" latitude="49.496759842417845" longitude="11.069054733293136"
+    # elevation="317.60116324946284" heading="98.552436828613281"
+    # dockLatitude="49.496774936124368" dockLongitude="11.068896558384955" dockHeading="98.230850219726563" />
+    dock_re = re.compile('.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)"')
+
+    def __init__(self, line):
+        m = self.dock_re.match(line)
+        if m is None:
+            log.error(f"Cannot parse dock line: '{line}'")
+
+        self.lat = float(m.group(1))
+        self.lon = float(m.group(2))
+        self.hdg = normalize_hdg(90 + float(m.group(3)))
+
+    def __repr__(self):
+        return f"sam_dock {self.lat} {self.lon} {self.hdg}°"
 
 class SAM():
     def __init__(self):
         self.jetways = []
+        self.docks = []
 
         for l in open("sam.xml", "r").readlines():
             if l.find("<jetway name") > 0:
                 self.jetways.append(SAM_jw(l))
+            elif l.find("<dock id") > 0:
+                self.docks.append(SAM_dock(l))
 
     def match_jetways(self, obj_ref, obj_hdg):
         for jw in self.jetways:
-            if jw.is_pos(obj_ref):
+            d, d_hdg = jw.distance(obj_ref)
+            if d < 0.5 and d_hdg < 1:
                 jw.obj_hdg = obj_hdg  # save heading of placed obj
+                return True
+
+        return False
+
+    def match_docks(self, obj_ref):
+        for dock in self.docks:
+            d, d_hdg = dock.distance(obj_ref)
+            if d < 1: # and d_hdg < 2:
                 return True
 
         return False
 
 class ObjectRef(ObjPos):
     is_jetway = False
+    is_dock = False
 
     def __init__(self, id, lat, lon, hdg):
         self.id = id
@@ -140,6 +173,7 @@ class ObjectRef(ObjPos):
 
 class ObjectDef():
     is_jetway = False
+    is_dock = False
 
     def __init__(self, id, name):
         self.id = id
@@ -211,12 +245,18 @@ class Dsf():
 
         return True
 
-    def filter_jetways(self, sam):
+    def filter_sam(self, sam):
         for o in self.object_refs:
             if sam.match_jetways(o, o.hdg):
                 o.is_jetway = True
                 self.object_defs[o.id].is_jetway = True
                 self.n_jw += 1
+                continue
+
+            if sam.match_docks(o):
+                o.is_dock = True
+                self.object_defs[o.id].is_dock = True
+                self.n_docks += 1
 
     def write(self):
         dsf_txt = self.dsf_base + ".txt"
@@ -228,13 +268,13 @@ class Dsf():
 
         self.run_cmd(f'"{dsf_tool}" -text2dsf "{dsf_txt}" "{self.dsf_base}.dsf"')
 
-    def remove_jetways(self):
-        if self.n_jw == 0:
-            return
+    def remove_sam(self):
+        if self.n_jw == 0 and self.n_docks == 0:
+            return False
 
         new_id = 0
         for o in self.object_defs:
-            if o.is_jetway:
+            if o.is_jetway or o.is_dock:
                 o.id = -1   # delete
             else:
                 o.id = new_id
@@ -243,6 +283,8 @@ class Dsf():
         # renumber in object_refs, deleted object propagates
         for o in self.object_refs:
             o.id = self.object_defs[o.id].id
+
+        return True # changed
 
     def add_rotundas(self, sam):
         self.polygon_defs.append(f"POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/{jw_resource[jw_code]}")
@@ -325,6 +367,17 @@ if not os.path.isdir(src_dir):
     log.info(f'Created backup copy "{src_dir}"')
 
 sam = SAM()
+n_sam_jw = len(sam.jetways)
+n_sam_docks = len(sam.docks)
+log.info(f"Found {n_sam_jw} jetways and {n_sam_docks} docks in sam.xml")
+
+if verbose > 0:
+    print("SAM jetways")
+    for jw in sam.jetways:
+        print(jw)
+
+    for d in sam.docks:
+        print(d)
 
 dsf_list = []
 for dir, dirs, files in os.walk(src_dir):
@@ -334,40 +387,58 @@ for dir, dirs, files in os.walk(src_dir):
             continue
 
         full_name = os.path.join(dir, f)
+        log.info(f"Processing {full_name}")
         dsf = Dsf(full_name)
         dsf.parse()
         dsf_list.append(dsf)
 
-print("SAM jetways")
-for jw in sam.jetways:
-    print(jw)
 
 n_dsf_jw = 0
+n_dsf_docks = 0
 for dsf in dsf_list:
-    dsf.filter_jetways(sam)
+    dsf.filter_sam(sam)
     if dsf.n_jw > 0:
         n_dsf_jw += dsf.n_jw
-        print(f"\nOBJECT_DEFs that are jetways in {dsf.fname}")
-        for o in dsf.object_defs:
-            if o.is_jetway:
-                print(o)
+        if verbose > 0:
+            print(f"\nOBJECT_DEFs that are jetways in {dsf.fname}")
+            for o in dsf.object_defs:
+                if o.is_jetway:
+                    print(o)
 
-        print(f"\nOBJECTs that are jetways in {dsf.fname}")
-        for o in dsf.object_refs:
-            if o.is_jetway:
-                print(o)
+            print(f"\nOBJECTs that are jetways in {dsf.fname}")
+            for o in dsf.object_refs:
+                if o.is_jetway:
+                    print(o)
 
-n_sam_jw = len(sam.jetways)
+    if dsf.n_docks > 0:
+        n_dsf_docks += dsf.n_docks
+        if verbose > 0:
+            print(f"\nOBJECT_DEFs that are docks in {dsf.fname}")
+            for o in dsf.object_defs:
+                if o.is_dock:
+                    print(o)
+
+            print(f"\nOBJECTs that are docks in {dsf.fname}")
+            for o in dsf.object_refs:
+                if o.is_dock:
+                    print(o)
+
+log.info(f"Identified {n_dsf_jw} jetways and {n_dsf_docks} docks in .dsf files")
 if n_dsf_jw != n_sam_jw:
     log.error(f"# of jetways mismatch: dsf: {n_dsf_jw}, sam: {n_sam_jw}")
     sys.exit(2)
 
+if n_dsf_docks != n_sam_docks:
+    log.error(f"# of docks mismatch: dsf: {n_dsf_docks}, sam: {n_sam_docks}")
+    sys.exit(2)
+
+log.info("Removing sam jetways and docks from dsf and creating rotundas")
 for dsf in dsf_list:
-    if dsf.n_jw > 0:
-        dsf.remove_jetways()
+    if dsf.remove_sam():
         dsf.add_rotundas(sam)
         dsf.write()
 
+log.info("Creating XP12 jetways in apt.dat")
 apt_lines = open("Earth nav data.pre_s2n/apt.dat", "r").readlines()
 with open("Earth nav data/apt.dat", "w") as f:
     for l in apt_lines:
@@ -375,3 +446,6 @@ with open("Earth nav data/apt.dat", "w") as f:
             for jw in sam.jetways:
                 f.write(f"{jw.apt_1500()}\n")
         f.write(l)
+
+open("Earth nav data/use_autodgs", "w")
+log.info('done!')
