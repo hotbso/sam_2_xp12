@@ -224,17 +224,6 @@ class Dsf():
         base, _ = os.path.splitext(self.fname) # dst folder
         self.dsf_base = base.replace("Earth nav data.pre_s2n", "Earth nav data")
 
-    def __repr__(self):
-        return f"{self.fname}"
-
-    def run_cmd(self, cmd):
-        # "shell = True" is not needed on Windows, bombs on Lx
-        out = subprocess.run(shlex.split(cmd), capture_output = True)
-        if out.returncode != 0:
-            log.error(f"Can't run {cmd}: {out}")
-            sys.exit(2)
-
-    def parse(self):
         obj_id = 0
         dsf_txt = self.dsf_base + ".txt_pre"
 
@@ -278,7 +267,16 @@ class Dsf():
 
             self.rest.append(l)
 
-        return True
+    def __repr__(self):
+        return f"{self.fname}"
+
+    def run_cmd(self, cmd):
+        # "shell = True" is not needed on Windows, bombs on Lx
+        out = subprocess.run(shlex.split(cmd), capture_output = True)
+        if out.returncode != 0:
+            log.error(f"Can't run {cmd}: {out}")
+            sys.exit(2)
+
 
     def filter_sam(self, sam):
         for o in self.object_refs:
@@ -445,9 +443,7 @@ for dir, dirs, files in os.walk(src_dir):
 
         full_name = os.path.join(dir, f)
         log.info(f"Processing {full_name}")
-        dsf = Dsf(full_name)
-        dsf.parse()
-        dsf_list.append(dsf)
+        dsf_list.append(Dsf(full_name))
 
 
 n_dsf_jw = 0
