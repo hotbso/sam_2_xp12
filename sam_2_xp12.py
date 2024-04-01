@@ -27,11 +27,12 @@ verbose = 0
 import platform, sys, os, os.path, math, shlex, subprocess, shutil, re
 import logging
 
-log = logging.getLogger("sam_2_native")
+log = logging.getLogger("sam_2_xp12")
 
 jw_type = None
 jw_resource = ['Jetway_1_solid.fac', 'Jetway_1_glass.fac', 'Jetway_2_solid.fac', 'Jetway_2_glass.fac' ]
 jw_match_radius = 0.5
+remove_sam_lib_objects = False
 
 deg_2_m = 60 * 1982.0   # ° lat to m
 
@@ -278,26 +279,35 @@ class Dsf():
     def write(self):
         dsf_txt = self.dsf_base + ".txt"
         with open(dsf_txt, "w") as f:
-            for section in [self.rest, self.object_defs, self.polygon_defs,
-                            self.object_refs, self.polygon_refs]:
+            for o in self.rest:
+                f.write(f"{o}\n")
+            for o in self.object_defs:
+                f.write(f"#{o.id}\n")
+                f.write(f"{o}\n")
+            for section in [self.polygon_defs, self.object_refs, self.polygon_refs]:
                 for o in section:
                     f.write(f"{o}\n")
 
         self.run_cmd(f'"{dsf_tool}" -text2dsf "{dsf_txt}" "{self.dsf_base}.dsf"')
 
     def remove_sam(self):
-        if self.n_jw == 0 and self.n_docks == 0:
-            return False
+        changed = False
 
         new_id = 0
         for o in self.object_defs:
-            if o.is_jetway or o.is_dock:
+            if ((o.is_jetway or o.is_dock) or
+                (remove_sam_lib_objects and
+                    (o.name.find("SAM_Library") >= 0 or o.name.find("SAM3_Library") >= 0))):
                 o.id = -1   # delete
+                changed = True
             else:
                 o.id = new_id
                 new_id += 1
 
-        # renumber in object_refs, deleted object propagate
+        if not changed:
+            return False
+            
+        # renumber in object_refs, deleted object propagate to deleted refs
         for o in self.object_refs:
             o.id = self.object_defs[o.id].id
 
@@ -337,7 +347,7 @@ class Dsf():
 ## main
 ###########
 logging.basicConfig(level=logging.INFO,
-                    handlers=[logging.FileHandler(filename = "sam_2_native.log", mode='w'),
+                    handlers=[logging.FileHandler(filename = "sam_2_xp12.log", mode='w'),
                               logging.StreamHandler()])
 
 log.info(f"Version: {VERSION}")
@@ -345,7 +355,7 @@ log.info(f"args: {sys.argv}")
 
 def usage():
     log.error( \
-        """sam_2_native -jw_type 0..3 [-jw_match_radius d] [-verbose]
+        """sam_2_xp12 -jw_type 0..3 [-jw_match_radius d] [-remove_sam_lib_objects] [-verbose]
             -jw_type 0..3
                 0: light-solid
                 1: light-glass
@@ -356,6 +366,8 @@ def usage():
                 distance in meters to match sam coordnates with secenery objects
                 default: 0.5
 
+            -remove_sam_lib_objects
+                remove all references to the SAM*_Library
          """)
     sys.exit(2)
 
@@ -375,6 +387,8 @@ while i < len(sys.argv):
         jw_match_radius = float(sys.argv[i])
     elif sys.argv[i] == "-verbose":
         verbose = 1
+    elif sys.argv[i] == "-remove_sam_lib_objects":
+        remove_sam_lib_objects = True
 
     i = i + 1
 
@@ -487,8 +501,8 @@ with open("Earth nav data/apt.dat", "w") as f:
 sam_lib_refs = []
 for dsf in dsf_list:
     for o in dsf.object_defs:
-        if o.id >= 0 and o.name.find("SAM_Library") >= 0 or \
-           o.name.find("SAM3_Library") >= 0:
+        if (o.id >= 0 and
+            (o.name.find("SAM_Library") >= 0 or o.name.find("SAM3_Library") >= 0)):
             sam_lib_refs.append(o)
 
 if len (sam_lib_refs) > 0:
