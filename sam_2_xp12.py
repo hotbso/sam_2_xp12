@@ -363,7 +363,7 @@ def usage():
                 3: dark-glass
 
             -jw_match_radius d:
-                distance in meters to match sam coordnates with secenery objects
+                distance in meters to match sam coordinates with scenery objects
                 default: 0.5
 
             -remove_sam_lib_objects
