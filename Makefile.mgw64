@@ -1,0 +1,11 @@
+all: sam_2_xp12/sam_2_xp12.py sam_2_xp12/sam_2_xp12.exe
+
+OBJDIR=./OBJ
+
+sam_2_xp12/sam_2_xp12.exe: sam_2_xp12.py   
+	python -m PyInstaller  --distpath sam_2_xp12/. --workpath $(OBJDIR) --onefile sam_2_xp12.py
+
+sam_2_xp12/sam_2_xp12.py: sam_2_xp12.py
+	mkdir -p $(OBJDIR)
+	cp -p $< sam_2_xp12/.
+
