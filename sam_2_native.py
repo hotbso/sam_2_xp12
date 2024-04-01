@@ -146,10 +146,10 @@ class SAM():
         for l in open("sam.xml", "r").readlines():
             if l.find("<jetway ") > 0:
                 jw = SAM_jw(l)
-                if jw.height > 6.0 or jw.height < 4.0: # e.g A380 upper deck
-                    continue
-                self.jetways.append(jw)
-            elif l.find("<dock id") > 0:
+                if 3.5 <= jw.height and jw.height <= 6.0: # only in the range of XP12
+                    self.jetways.append(jw)
+
+            elif l.find("<dock ") > 0:
                 self.docks.append(SAM_dock(l))
 
     def match_jetways(self, obj_ref, obj_hdg):
@@ -175,32 +175,25 @@ class ObjectRef(ObjPos):
     is_dock = False
     sam_jw = None  # backlink to sam object
 
-    def __init__(self, id, lat, lon, hdg):
-        self.id = id
-        self.lat = lat
-        self.lon = lon
-        self.hdg = hdg
+    split_3 = re.compile("([^ ]+) +([^ ]+) +(.*)")          # 2 words + remainder
+    extract_3 = re.compile("([^ ]+) +([^ ]+) +([^ ]+).*")   # 3 words
+
+    def __init__(self, line):
+        m = self.split_3.match(line)
+        self.type = m.group(1)
+        self.id = int(m.group(2))
+        self.params = m.group(3)
+
+        m = self.extract_3.match(self.params)
+        self.lat = float(m.group(2))
+        self.lon = float(m.group(1))
+        self.hdg = float(m.group(3))
 
     def __repr__(self):
         if self.id < 0:
-            return "# deleted"
+            return f"# deleted {self.type} {self.id} {self.params}"
 
-        return f"OBJECT {self.id} {self.lon} {self.lat} {self.hdg}"
-
-class ObjectRefMsl(ObjectRef):
-
-    def __init__(self, id, lat, lon, hdg, msl):
-        self.id = id
-        self.lat = lat
-        self.lon = lon
-        self.hdg = hdg
-        self.msl = msl
-
-    def __repr__(self):
-        if self.id < 0:
-            return "# deleted"
-
-        return f"OBJECT_MSL {self.id} {self.lon} {self.lat} {self.hdg} {self.msl}"
+        return f"{self.type} {self.id} {self.params}"
 
 class ObjectDef():
     is_jetway = False
@@ -243,26 +236,20 @@ class Dsf():
                 continue
 
             #print(l)
-            words = l.split()
-            if words[0] == "OBJECT_DEF":
+            if l.find("OBJECT_DEF") == 0:
                 self.object_defs.append(ObjectDef(obj_id, l[11:]))   # object def can contain blanks
                 obj_id += 1
                 continue
 
-            if words[0] == "OBJECT":
-                self.object_refs.append(ObjectRef(int(words[1]), float(words[3]), float(words[2]), float(words[4])))
+            if l.find("OBJECT") == 0:
+                self.object_refs.append(ObjectRef(l))
                 continue
 
-            if words[0] == "OBJECT_MSL":
-                self.object_refs.append(ObjectRefMsl(int(words[1]), float(words[3]), float(words[2]),\
-                                        float(words[4]), float(words[5])))
-                continue
-
-            if words[0] == "POLYGON_DEF":
+            if l.find("POLYGON_DEF") == 0:
                 self.polygon_defs.append(l)
                 continue
 
-            if words[0].find("POLYGON") >= 0 or words[0].find("WINDING") >= 0:
+            if l.find("POLYGON") >= 0 or l.find("WINDING") >= 0:
                 self.polygon_refs.append(l)
                 continue
 
@@ -499,7 +486,8 @@ with open("Earth nav data/apt.dat", "w") as f:
 sam_lib_refs = []
 for dsf in dsf_list:
     for o in dsf.object_defs:
-        if o.id >= 0 and o.name.find("SAM_Library") >= 0:
+        if o.id >= 0 and o.name.find("SAM_Library") >= 0 or \
+           o.name.find("SAM3_Library") >= 0:
             sam_lib_refs.append(o)
 
 if len (sam_lib_refs) > 0:
@@ -507,7 +495,7 @@ if len (sam_lib_refs) > 0:
     for o in sam_lib_refs:
         log.info(f" {o}")
 else:
-    log.info("No more refereces to SAM_Library found!")
+    log.info("No more references to SAM*_Library found!")
 
 open("Earth nav data/use_autodgs", "w")
 log.info('done!')
