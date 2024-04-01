@@ -60,7 +60,7 @@ class ObjPos():
         return math.sqrt(dlat_m**2 + dlon_m**2), abs(self.hdg - obj_pos.hdg)
 
 class SAM_jw(ObjPos):
-    obj_hdg = None  # gets assigned if jw is matched by an object
+    obj_ref = None  # gets assigned if jw is matched by an object
 
     #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258"
     # height="4.33699989" wheelPos="9.35599995" cabinPos="17.6229992" cabinLength="2.84500003"
@@ -152,12 +152,12 @@ class SAM():
             elif l.find("<dock ") > 0:
                 self.docks.append(SAM_dock(l))
 
-    def match_jetways(self, obj_ref, obj_hdg):
+    def match_jetways(self, obj_ref):
         for jw in self.jetways:
             d, d_hdg = jw.distance(obj_ref)
-            if d < jw_match_radius: # and d_hdg < 1:
+            if d < jw_match_radius:
                 obj_ref.sam_jw = jw
-                jw.obj_hdg = obj_hdg  # save heading of placed obj
+                jw.obj_ref = obj_ref  # save obj reference
                 return True
 
         return False
@@ -268,7 +268,7 @@ class Dsf():
 
     def filter_sam(self, sam):
         for o in self.object_refs:
-            if sam.match_jetways(o, o.hdg):
+            if sam.match_jetways(o):
                 o.is_jetway = True
                 self.object_defs[o.id].is_jetway = True
                 self.n_jw += 1
@@ -314,15 +314,20 @@ class Dsf():
         rotunda_len = 1.5
 
         for jw in sam.jetways:
-            if jw.obj_hdg is None:
+            if jw.obj_ref is None:
                 log.warning(f"Unmatched sam jetway: {jw}")
                 continue    # sam definition is not matched by an object
 
-            lat1, lon1 = pos_plus_vec(jw.lat, jw.lon, rotunda_len, jw.obj_hdg)
+            lat = jw.lat
+            lon = jw.lon
+            #lat = jw.obj_ref.lat
+            #lon = jw.obj_ref.lon
+
+            lat1, lon1 = pos_plus_vec(lat, lon, rotunda_len, jw.obj_ref.hdg)
 
             self.polygon_refs.append(f"# '{jw.name}'\nBEGIN_POLYGON {id} 5 3")
             self.polygon_refs.append("BEGIN_WINDING");
-            self.polygon_refs.append(f"POLYGON_POINT {jw.lon:0.7f} {jw.lat:0.7f} 0.0")
+            self.polygon_refs.append(f"POLYGON_POINT {lon:0.7f} {lat:0.7f} 0.0")
             self.polygon_refs.append(f"POLYGON_POINT {lon1:0.7f} {lat1:0.7f} 0.0")
             self.polygon_refs.append("END_WINDING")
             self.polygon_refs.append("END_POLYGON")
