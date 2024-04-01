@@ -1,3 +1,7 @@
+OBJ/
+sam_2_xp12/sam_2_xp12.exe
+sam_2_xp12/sam_2_xp12.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
