@@ -20,12 +20,11 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-VERSION = "1"
+VERSION = "1.0-b1"
 
 verbose = 0
 
 import platform, sys, os, os.path, math, shlex, subprocess, shutil, re
-
 import logging
 
 log = logging.getLogger("sam_2_native")
@@ -53,11 +52,10 @@ class ObjPos():
     lon = None
     hdg = None
 
-    def distance(self, obj_pos): # -> m, delta_hdg
+    def distance(self, obj_pos): # -> m
         dlat_m = deg_2_m * (self.lat - obj_pos.lat)
         dlon_m = deg_2_m * (self.lon - obj_pos.lon) * math.cos(math.radians(self.lat))
-
-        return math.sqrt(dlat_m**2 + dlon_m**2), abs(self.hdg - obj_pos.hdg)
+        return math.sqrt(dlat_m**2 + dlon_m**2)
 
 class SAM_jw(ObjPos):
     obj_ref = None  # gets assigned if jw is matched by an object
@@ -154,8 +152,7 @@ class SAM():
 
     def match_jetways(self, obj_ref):
         for jw in self.jetways:
-            d, d_hdg = jw.distance(obj_ref)
-            if d < jw_match_radius:
+            if jw.distance(obj_ref) < jw_match_radius:
                 obj_ref.sam_jw = jw
                 jw.obj_ref = obj_ref  # save obj reference
                 return True
@@ -164,8 +161,7 @@ class SAM():
 
     def match_docks(self, obj_ref):
         for dock in self.docks:
-            d, d_hdg = dock.distance(obj_ref)
-            if d < 1: # and d_hdg < 2:
+            if dock.distance(obj_ref) < 1:
                 return True
 
         return False
@@ -301,7 +297,7 @@ class Dsf():
                 o.id = new_id
                 new_id += 1
 
-        # renumber in object_refs, deleted object propagates
+        # renumber in object_refs, deleted object propagate
         for o in self.object_refs:
             o.id = self.object_defs[o.id].id
 
