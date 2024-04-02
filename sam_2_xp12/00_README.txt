@@ -2,6 +2,8 @@ Installation:
 -------------
 
 Just extract the zip file to a folder of your liking. I recommend outside of the XP12 hierarchy.
+Download xptools from https://developer.x-plane.com/tools/xptools/ and place DFSTool[.exe] into
+the same folder.
 
 How it works:
 -------------
