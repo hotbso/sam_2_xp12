@@ -20,8 +20,9 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-VERSION = "1.0-b1"
+VERSION = "1.0-b2"
 
+DEBUG_PARSER = False # true should reproduce the input dsf_txt verbatim
 verbose = 0
 
 import platform, sys, os, os.path, math, shlex, subprocess, shutil, re
@@ -54,6 +55,9 @@ class ObjPos():
     hdg = None
 
     def distance(self, obj_pos): # -> m
+        if self.lat is None or obj_pos.lat is None: # it's a filter
+            return 1.0E10
+
         dlat_m = deg_2_m * (self.lat - obj_pos.lat)
         dlon_m = deg_2_m * (self.lon - obj_pos.lon) * math.cos(math.radians(self.lat))
         return math.sqrt(dlat_m**2 + dlon_m**2)
@@ -173,18 +177,32 @@ class ObjectRef(ObjPos):
     sam_jw = None  # backlink to sam object
 
     split_3 = re.compile("([^ ]+) +([^ ]+) +(.*)")          # 2 words + remainder
-    extract_3 = re.compile("([^ ]+) +([^ ]+) +([^ ]+).*")   # 3 words
 
     def __init__(self, line):
         m = self.split_3.match(line)
         self.type = m.group(1)
         self.id = int(m.group(2))
+
+        # we try to keep params verbatim for easier diff of text files
         self.params = m.group(3)
 
-        m = self.extract_3.match(self.params)
-        self.lat = float(m.group(2))
-        self.lon = float(m.group(1))
-        self.hdg = float(m.group(3))
+        words = self.params.split()
+        self.lon = float(words[0])
+        self.lat = float(words[1])
+
+        # OBJECT is lon, lat, hdg
+        if self.type == "OBJECT":
+            self.hdg = float(words[2])
+            return
+
+        # OBJECT_MSL or _AGL is lon, lat, height, hdg
+        height = float(words[2])
+        # height may be < 0 on imported records but that bombs on dsf2test
+        if height < 0:
+            words[2] = "0.0"
+            self.params = " ".join(words)
+
+        self.hdg = float(words[3])
 
     def __repr__(self):
         if self.id < 0:
@@ -215,42 +233,31 @@ class Dsf():
         base, _ = os.path.splitext(self.fname) # dst folder
         self.dsf_base = base.replace("Earth nav data.pre_s2n", "Earth nav data")
 
-        obj_id = 0
         dsf_txt = self.dsf_base + ".txt_pre"
 
         self.run_cmd(f'"{dsf_tool}" -dsf2text "{self.fname}" "{dsf_txt}"')
 
-        dsf_txt_lines = open(dsf_txt, "r").readlines()
+        self.dsf_lines = [] # anything with __repr__ method
+
+        self.jw_facade_id = 0
+        obj_id = 0
         self.object_defs = []
         self.object_refs = []
-        self.polygon_defs = []
-        self.polygon_refs = []
-        self.rest = []
 
-        for l in dsf_txt_lines:
+        for l in open(dsf_txt, "r").readlines():
             l = l.rstrip()
-            if len(l) == 0 or l[0] == "#":
-                continue
 
-            #print(l)
             if l.find("OBJECT_DEF") == 0:
-                self.object_defs.append(ObjectDef(obj_id, l[11:]))   # object def can contain blanks
+                l = ObjectDef(obj_id, l[11:])   # object def can contain blanks
+                self.object_defs.append(l)
                 obj_id += 1
-                continue
+            elif l.find("OBJECT") == 0:
+                l = ObjectRef(l)
+                self.object_refs.append(l)
+            elif l.find("POLYGON_DEF") == 0:
+                self.jw_facade_id += 1          # just count jw_facade_id
 
-            if l.find("OBJECT") == 0:
-                self.object_refs.append(ObjectRef(l))
-                continue
-
-            if l.find("POLYGON_DEF") == 0:
-                self.polygon_defs.append(l)
-                continue
-
-            if l.find("POLYGON") >= 0 or l.find("WINDING") >= 0:
-                self.polygon_refs.append(l)
-                continue
-
-            self.rest.append(l)
+            self.dsf_lines.append(l)
 
     def __repr__(self):
         return f"{self.fname}"
@@ -279,14 +286,10 @@ class Dsf():
     def write(self):
         dsf_txt = self.dsf_base + ".txt"
         with open(dsf_txt, "w") as f:
-            for o in self.rest:
-                f.write(f"{o}\n")
-            for o in self.object_defs:
-                f.write(f"#{o.id}\n")
-                f.write(f"{o}\n")
-            for section in [self.polygon_defs, self.object_refs, self.polygon_refs]:
-                for o in section:
-                    f.write(f"{o}\n")
+            for l in self.dsf_lines:
+                if l.__class__ is ObjectDef:
+                    f.write(f"# {l.id}\n")
+                f.write(f"{l}\n")
 
         self.run_cmd(f'"{dsf_tool}" -text2dsf "{dsf_txt}" "{self.dsf_base}.dsf"')
 
@@ -306,16 +309,16 @@ class Dsf():
 
         if not changed:
             return False
-            
+
         # renumber in object_refs, deleted object propagate to deleted refs
         for o in self.object_refs:
-            o.id = self.object_defs[o.id].id
+            if o.id is not None:    # FILTER directive
+                o.id = self.object_defs[o.id].id
 
         return True # changed
 
     def add_rotundas(self, sam):
-        self.polygon_defs.append(f"POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/{jw_resource[jw_type]}")
-        id = len(self.polygon_defs) - 1
+        self.dsf_lines.append(f"POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/{jw_resource[jw_type]}")
 
         rotunda_len = 1.5
 
@@ -331,12 +334,12 @@ class Dsf():
 
             lat1, lon1 = pos_plus_vec(lat, lon, rotunda_len, jw.obj_ref.hdg)
 
-            self.polygon_refs.append(f"# '{jw.name}'\nBEGIN_POLYGON {id} 5 3")
-            self.polygon_refs.append("BEGIN_WINDING");
-            self.polygon_refs.append(f"POLYGON_POINT {lon:0.7f} {lat:0.7f} 0.0")
-            self.polygon_refs.append(f"POLYGON_POINT {lon1:0.7f} {lat1:0.7f} 0.0")
-            self.polygon_refs.append("END_WINDING")
-            self.polygon_refs.append("END_POLYGON")
+            self.dsf_lines.append(f"# '{jw.name}'\nBEGIN_POLYGON {self.jw_facade_id} 5 3")
+            self.dsf_lines.append("BEGIN_WINDING");
+            self.dsf_lines.append(f"POLYGON_POINT {lon:0.7f} {lat:0.7f} 0.0")
+            self.dsf_lines.append(f"POLYGON_POINT {lon1:0.7f} {lat1:0.7f} 0.0")
+            self.dsf_lines.append("END_WINDING")
+            self.dsf_lines.append("END_POLYGON")
 
             # center of rotunda
             jw.lat = lat1
@@ -395,7 +398,7 @@ while i < len(sys.argv):
 if jw_type is None:
     usage()
 
-dsf_tool = os.path.join(os.path.dirname(sys.argv[0]), 'dsftool')
+dsf_tool = os.path.join(os.path.dirname(sys.argv[0]), 'DSFTool')
 if platform.system() == 'Windows':
     dsf_tool += ".exe"
 
@@ -485,9 +488,15 @@ log.info(f"Identified {n_dsf_jw} jetways and {n_dsf_docks} docks in .dsf files")
 
 log.info("Removing sam jetways and docks from dsf and creating rotundas")
 for dsf in dsf_list:
-    if dsf.remove_sam():
-        dsf.add_rotundas(sam)
+    if DEBUG_PARSER:
         dsf.write()
+    else:
+        if dsf.remove_sam():
+            dsf.add_rotundas(sam)
+            dsf.write()
+
+if DEBUG_PARSER:
+    sys.exit(0)
 
 log.info("Creating XP12 jetways in apt.dat")
 apt_lines = open("Earth nav data.pre_s2n/apt.dat", "r").readlines()
