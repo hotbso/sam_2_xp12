@@ -197,7 +197,7 @@ class ObjectRef(ObjPos):
 
         # OBJECT_MSL or _AGL is lon, lat, height, hdg
         height = float(words[2])
-        # height may be < 0 on imported records but that bombs on dsf2test
+        # height may be < 0 on imported records but that bombs on text2dsf
         if height < 0:
             words[2] = "0.0"
             self.params = " ".join(words)
