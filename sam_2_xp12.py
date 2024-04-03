@@ -393,6 +393,8 @@ while i < len(sys.argv):
         verbose = 1
     elif sys.argv[i] == "-remove_sam_lib_objects":
         remove_sam_lib_objects = True
+    else:
+        usage();
 
     i = i + 1
 
