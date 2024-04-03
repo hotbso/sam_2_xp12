@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-VERSION = "1.0-b2"
+VERSION = "1.0-b3"
 
 DEBUG_PARSER = False # true should reproduce the input dsf_txt verbatim
 verbose = 0
@@ -97,31 +97,32 @@ class SAM_jw(ObjPos):
 
         self.cab_hdg = float(m.group(9))
 
+        total_length = self.length + self.max_extend
+        self.lcode = -1
+        if self.length >= 11 and self.length <= 23:
+            self.lcode = 0
+        if self.length >= 14 and self.length <= 29:
+            self.lcode = 1
+        if self.length >= 17 and self.length <= 38:
+            self.lcode = 2
+        if self.length >= 20 and self.length <= 47:
+            self.lcode = 3
+
+        if self.lcode < 0:
+            log.warning(f"{self}")
+            log.warning(f"can't find XP12 tunnel for {self.name}, skipping")
+            return
+
     def __repr__(self):
-        return f"sam_jw '{self.name}' {self.lat} {self.lon} {self.length}m {self.max_extend}m " +\
-               f"{self.jw_hdg}° {self.cab_hdg}°"
+        return f"sam_jw '{self.name}' {self.lat} {self.lon}, length {self.length}m, extension {self.max_extend}m, " +\
+               f"jw hdg: {self.jw_hdg}°, cab hdg {self.cab_hdg}°"
 
     def apt_1500(self):
-        total_length = self.length + self.max_extend
-        lcode = -1
-        if self.length >= 11 and self.length <= 23:
-            lcode = 0
-        if self.length >= 14 and self.length <= 29:
-            lcode = 1
-        if self.length >= 17 and self.length <= 38:
-            lcode = 2
-        if self.length >= 20 and self.length <= 47:
-            lcode = 3
-
-        if lcode < 0:
-            log.error(f"can't find tunnel for {self}")
-            sys.exit(2)
-
         jw_hdg = normalize_hdg(self.jw_hdg)
         cab_hdg = normalize_hdg(self.jw_hdg + self.cab_hdg)
 
         return f"# '{self.name}'\n1500 {self.lat:0.8f} {self.lon:0.8f} {jw_hdg:0.1f} " + \
-               f"{jw_type} {lcode} {jw_hdg:0.1f} {self.length:0.1f} {cab_hdg:0.1f}"
+               f"{jw_type} {self.lcode} {jw_hdg:0.1f} {self.length:0.1f} {cab_hdg:0.1f}"
 
 class SAM_dock(ObjPos):
     #<dock id="GA 2" latitude="49.496759842417845" longitude="11.069054733293136"
@@ -149,7 +150,7 @@ class SAM():
         for l in open("sam.xml", "r").readlines():
             if l.find("<jetway ") > 0:
                 jw = SAM_jw(l)
-                if 3.5 <= jw.height and jw.height <= 6.0: # only in the range of XP12
+                if 3.5 <= jw.height and jw.height <= 6.0 and jw.lcode >= 0: # only in the range of XP12
                     self.jetways.append(jw)
 
             elif l.find("<dock ") > 0:
@@ -504,7 +505,8 @@ with open("Earth nav data/apt.dat", "w") as f:
     for l in apt_lines:
         if l.find("99") == 0:
             for jw in sam.jetways:
-                f.write(f"{jw.apt_1500()}\n")
+                if jw.lcode >= 0:
+                    f.write(f"{jw.apt_1500()}\n")
         f.write(l)
 
 sam_lib_refs = []
