@@ -164,16 +164,16 @@ class SAM():
         return False
 
 class ObjectRef(ObjPos):
-    is_jetway = False
-    is_dock = False
-    sam_jw = None  # backlink to sam object
+    sam_jw = None  # backlink to sam definition
 
     split_3 = re.compile("([^ ]+) +([^ ]+) +(.*)")          # 2 words + remainder
 
-    def __init__(self, line):
+    def __init__(self, obj, line):
+        self.obj = obj
         m = self.split_3.match(line)
         self.type = m.group(1)
-        self.id = int(m.group(2))
+        id = int(m.group(2))
+        assert id == obj.id
 
         # we try to keep params verbatim for easier diff of text files
         self.params = m.group(3)
@@ -197,10 +197,11 @@ class ObjectRef(ObjPos):
         self.hdg = float(words[3])
 
     def __repr__(self):
-        if self.id < 0:
-            return f"# deleted {self.type} {self.id} {self.params}"
+        id = self.obj.id
+        if id < 0:
+            return f"# deleted {self.type} {id} {self.params}"
 
-        return f"{self.type} {self.id} {self.params}"
+        return f"{self.type} {id} {self.params}"
 
 class ObjectDef():
     sam_checked = False
@@ -220,7 +221,7 @@ class ObjectDef():
                 for l in open(self.name, "r").readlines():
                     if l.find("sam/jetway/rotate1") >= 0:
                         self.sam_jw = True
-                        log.info(f"{self} is a SAM jetway")
+                        log.info(f"{self} is a SAM controlled jetway obj")
                         break
 
         return self.sam_jw
@@ -258,8 +259,9 @@ class Dsf():
                 l = ObjectDef(obj_id, l[11:])   # object def can contain blanks
                 self.object_defs.append(l)
                 obj_id += 1
-            elif l.find("OBJECT") == 0:
-                l = ObjectRef(l)
+            elif l.find("OBJECT") == 0:         # OBJECT[_AGL|_MSL]
+                id = int(l.split()[1])
+                l = ObjectRef(self.object_defs[id], l)
                 self.object_refs.append(l)
             elif l.find("POLYGON_DEF") == 0:
                 self.jw_facade_id += 1          # just count jw_facade_id
@@ -289,30 +291,28 @@ class Dsf():
             # then mark this alone
             have_sam_jw = False
             for o_r in candidates:
-                obj = self.object_defs[o_r.id]
+                obj = o_r.obj
                 if obj.is_sam_jw():
                     have_sam_jw = True
-                    o_r.is_jetway = True
                     o_r.sam_jw = jw
                     jw.obj_ref = o_r
                     obj.is_jetway = True
                     self.n_jw += 1
                     break
 
-            # no SAM jetway found, mark all
+            # no SAM controlled jetway obj found, mark all
             if not have_sam_jw:
                 for o_r in candidates:
-                    o_r.is_jetway = True
                     o_r.sam_jw = jw
                     jw.obj_ref = o_r
                     obj.is_jetway = True
                     self.n_jw += 1
 
-        # docks is simpler
+        # finding docks is simpler
         for o_r in self.object_refs:
             if sam.match_docks(o_r):
                 o_r.is_dock = True
-                self.object_defs[o_r.id].is_dock = True
+                o_r.obj.is_dock = True
                 self.n_docks += 1
 
     def write(self):
@@ -341,11 +341,6 @@ class Dsf():
 
         if not changed:
             return False
-
-        # renumber in object_refs, deleted object propagate to deleted refs
-        for o in self.object_refs:
-            if o.id is not None:    # FILTER directive
-                o.id = self.object_defs[o.id].id
 
         return True # changed
 
@@ -498,10 +493,10 @@ for dsf in dsf_list:
                     log.info(f"{o.id:3d}: {o}")
 
             log.info("")
-            log.info(f"OBJECTs that belong to jetways in {dsf.fname}")
-            for o in dsf.object_refs:
-                if o.is_jetway:
-                    log.info(f" {o.sam_jw.name:8} {o}")
+            log.info(f"OBJECT refs that belong to jetways in {dsf.fname}")
+            for o_r in dsf.object_refs:
+                if o_r.obj.is_jetway:
+                    log.info(f" {o_r.sam_jw.name:8} {o_r}")
 
     if dsf.n_docks > 0:
         n_dsf_docks += dsf.n_docks
@@ -513,10 +508,10 @@ for dsf in dsf_list:
                     log.info(f" {o}")
 
             log.info("")
-            log.info(f"OBJECTs that are docks in {dsf.fname}")
-            for o in dsf.object_refs:
-                if o.is_dock:
-                    log.info(f" {o}")
+            log.info(f"OBJECT refs that are docks in {dsf.fname}")
+            for o_r in dsf.object_refs:
+                if o_r.obj.is_dock:
+                    log.info(f" {o_r}")
 
 log.info(f"Identified {n_dsf_jw} jetways and {n_dsf_docks} docks in .dsf files")
 
