@@ -347,30 +347,30 @@ class Dsf():
     def add_rotundas(self, sam):
         self.dsf_lines.append(f"POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/{jw_resource[jw_type]}")
 
-        rotunda_len = 1.5
+        rotunda_len = 1
 
         for jw in sam.jetways:
             if jw.obj_ref is None:
                 log.warning(f"Unmatched sam jetway: {jw}")
                 continue    # sam definition is not matched by an object
 
-            lat = jw.lat
-            lon = jw.lon
-            #lat = jw.obj_ref.lat
-            #lon = jw.obj_ref.lon
+            if jw.obj_ref:
+                lat2 = jw.obj_ref.lat
+                lon2 = jw.obj_ref.lon
+                hdg = jw.obj_ref.hdg
+            else:
+                lat2 = jw.lat
+                lon2 = jw.lon
+                hdg = jw.hdg
 
-            lat1, lon1 = pos_plus_vec(lat, lon, rotunda_len, jw.obj_ref.hdg)
+            lat1, lon1 = pos_plus_vec(lat2, lon2, -rotunda_len, hdg)
 
             self.dsf_lines.append(f"# '{jw.name}'\nBEGIN_POLYGON {self.jw_facade_id} 5 3")
             self.dsf_lines.append("BEGIN_WINDING");
-            self.dsf_lines.append(f"POLYGON_POINT {lon:0.7f} {lat:0.7f} 0.0")
             self.dsf_lines.append(f"POLYGON_POINT {lon1:0.7f} {lat1:0.7f} 0.0")
+            self.dsf_lines.append(f"POLYGON_POINT {lon2:0.7f} {lat2:0.7f} 0.0")
             self.dsf_lines.append("END_WINDING")
             self.dsf_lines.append("END_POLYGON")
-
-            # center of rotunda
-            jw.lat = lat1
-            jw.lon = lon1
 
 
 ###########
