@@ -156,15 +156,6 @@ class SAM():
             elif l.find("<dock ") > 0:
                 self.docks.append(SAM_dock(l))
 
-    def match_jetways(self, obj_ref):
-        for jw in self.jetways:
-            if jw.distance(obj_ref) < jw_match_radius:
-                obj_ref.sam_jw = jw
-                jw.obj_ref = obj_ref  # save obj reference
-                return True
-
-        return False
-
     def match_docks(self, obj_ref):
         for dock in self.docks:
             if dock.distance(obj_ref) < 1:
@@ -212,12 +203,27 @@ class ObjectRef(ObjPos):
         return f"{self.type} {self.id} {self.params}"
 
 class ObjectDef():
+    sam_checked = False
+    sam_jw = False
     is_jetway = False
     is_dock = False
 
     def __init__(self, id, name):
         self.id = id
         self.name = name
+
+    def is_sam_jw(self):
+        """ Check whether .OBJ file contains a sam dataref"""
+        if not self.sam_checked:
+            self.sam_checked = True
+            if os.path.isfile(self.name):
+                for l in open(self.name, "r").readlines():
+                    if l.find("sam/jetway/rotate1") >= 0:
+                        self.sam_jw = True
+                        log.info(f"{self} is a SAM jetway")
+                        break
+
+        return self.sam_jw
 
     def __repr__(self):
         if self.id < 0:
@@ -270,18 +276,43 @@ class Dsf():
             log.error(f"Can't run {cmd}: {out}")
             sys.exit(2)
 
-
     def filter_sam(self, sam):
-        for o in self.object_refs:
-            if sam.match_jetways(o):
-                o.is_jetway = True
-                self.object_defs[o.id].is_jetway = True
-                self.n_jw += 1
-                continue
+        for jw in sam.jetways:
+            candidates = []
 
-            if sam.match_docks(o):
-                o.is_dock = True
-                self.object_defs[o.id].is_dock = True
+            # find possible candidates by proximity
+            for o_r in self.object_refs:
+                if jw.distance(o_r) < jw_match_radius:
+                    candidates.append(o_r)
+
+            # check if one of these is a SAM jetway
+            # then mark this alone
+            have_sam_jw = False
+            for o_r in candidates:
+                obj = self.object_defs[o_r.id]
+                if obj.is_sam_jw():
+                    have_sam_jw = True
+                    o_r.is_jetway = True
+                    o_r.sam_jw = jw
+                    jw.obj_ref = o_r
+                    obj.is_jetway = True
+                    self.n_jw += 1
+                    break
+
+            # no SAM jetway found, mark all
+            if not have_sam_jw:
+                for o_r in candidates:
+                    o_r.is_jetway = True
+                    o_r.sam_jw = jw
+                    jw.obj_ref = o_r
+                    obj.is_jetway = True
+                    self.n_jw += 1
+
+        # docks is simpler
+        for o_r in self.object_refs:
+            if sam.match_docks(o_r):
+                o_r.is_dock = True
+                self.object_defs[o_r.id].is_dock = True
                 self.n_docks += 1
 
     def write(self):
