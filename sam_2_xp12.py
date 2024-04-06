@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-VERSION = "1.0-b3"
+VERSION = "1.0-b4-dev"
 
 DEBUG_PARSER = False # true should reproduce the input dsf_txt verbatim
 verbose = 0
@@ -33,6 +33,7 @@ log = logging.getLogger("sam_2_xp12")
 jw_type = None
 jw_resource = ['Jetway_1_solid.fac', 'Jetway_1_glass.fac', 'Jetway_2_solid.fac', 'Jetway_2_glass.fac' ]
 jw_match_radius = 0.5
+jw_rotunda_length = 1.0
 remove_sam_lib_objects = False
 
 deg_2_m = 60 * 1982.0   # ° lat to m
@@ -347,8 +348,6 @@ class Dsf():
     def add_rotundas(self, sam):
         self.dsf_lines.append(f"POLYGON_DEF lib/airport/Ramp_Equipment/Jetways/{jw_resource[jw_type]}")
 
-        rotunda_len = 1
-
         for jw in sam.jetways:
             if jw.obj_ref is None:
                 log.warning(f"Unmatched sam jetway: {jw}")
@@ -363,7 +362,7 @@ class Dsf():
                 lon2 = jw.lon
                 hdg = jw.hdg
 
-            lat1, lon1 = pos_plus_vec(lat2, lon2, -rotunda_len, hdg)
+            lat1, lon1 = pos_plus_vec(lat2, lon2, -jw_rotunda_length, hdg)
 
             self.dsf_lines.append(f"# '{jw.name}'\nBEGIN_POLYGON {self.jw_facade_id} 5 3")
             self.dsf_lines.append("BEGIN_WINDING");
@@ -392,9 +391,13 @@ def usage():
                 2: dark-solid
                 3: dark-glass
 
-            -jw_match_radius d:
+            -jw_match_radius d
                 distance in meters to match sam coordinates with scenery objects
                 default: 0.5
+
+            -jw_rotunda_length d
+                length of the rotunda segment
+                default: 1.0
 
             -remove_sam_lib_objects
                 remove all references to the SAM*_Library
@@ -415,6 +418,11 @@ while i < len(sys.argv):
         if i >= len(sys.argv):
             usage()
         jw_match_radius = float(sys.argv[i])
+    elif sys.argv[i] == "-jw_rotunda_length":
+        i = i + 1
+        if i >= len(sys.argv):
+            usage()
+        jw_rotunda_length = float(sys.argv[i])
     elif sys.argv[i] == "-verbose":
         verbose = 1
     elif sys.argv[i] == "-remove_sam_lib_objects":
