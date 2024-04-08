@@ -26,6 +26,7 @@ DEBUG_PARSER = False # true should reproduce the input dsf_txt verbatim
 verbose = 0
 
 import platform, sys, os, os.path, math, shlex, subprocess, shutil, re
+import xml.etree.ElementTree
 import logging
 
 log = logging.getLogger("sam_2_xp12")
@@ -66,29 +67,17 @@ class ObjPos():
 class SAM_jw(ObjPos):
     obj_ref = None  # gets assigned if jw is matched by an object
 
-    #<jetway name="Gate 11" latitude="49.495060845089135" longitude="11.077626914186194" heading="8.2729158401489258"
-    # height="4.33699989" wheelPos="9.35599995" cabinPos="17.6229992" cabinLength="2.84500003"
-    # wheelDiameter="1.21200001" wheelDistance="1.79999995" sound="alarm2.ogg"
-    # minRot1="-85" maxRot1="5" minRot2="-72" maxRot2="41" minRot3="-6" maxRot3="6"
-    # minExtent="0" maxExtent="15.3999996" minWheels="-2" maxWheels="2"
-    # initialRot1="-60.0690002" initialRot2="-37.8320007" initialRot3="-3.72300005" initialExtent="0" />
-    jw_re = re.compile('.* name="([^"]+).* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)"' +
-                       '.* height="([^"]+)".* cabinPos="([^"]+)".* maxExtent="([^"]+)"' +
-                       '.* initialRot1="([^"]+)".* initialRot2="([^"]+)".*')
+    def __init__(self, attrib):
+        print(attrib)
+        self.name = attrib['name']
+        self.lat = float(attrib['latitude'])
+        self.lon = float(attrib['longitude'])
+        self.hdg = float(attrib['heading'])
+        self.height = float(attrib['height'])
+        self.length = float(attrib['cabinPos'])
+        self.max_extend = float(attrib['maxExtent'])
 
-    def __init__(self, line):
-        m = self.jw_re.match(line)
-        if m is None:
-            log.error(f"Cannot parse jetway line: '{line}'")
-        self.name = m.group(1)
-        self.lat = float(m.group(2))
-        self.lon = float(m.group(3))
-        self.hdg = float(m.group(4))
-        self.height = float(m.group(5))
-        self.length = float(m.group(6))
-        self.max_extend = float(m.group(7))
-
-        initialRot1 = m.group(8)
+        initialRot1 = attrib['initialRot1']
         if initialRot1 == "0":      # 0 = undefined?
             self.jw_hdg = self.hdg
         else:
@@ -96,7 +85,7 @@ class SAM_jw(ObjPos):
 
         self.jw_hdg = self.hdg + float(initialRot1)
 
-        self.cab_hdg = float(m.group(9))
+        self.cab_hdg = float(attrib['initialRot2'])
 
         total_length = self.length + self.max_extend
         self.lcode = -1
@@ -126,19 +115,10 @@ class SAM_jw(ObjPos):
                f"{jw_type} {self.lcode} {jw_hdg:0.1f} {self.length:0.1f} {cab_hdg:0.1f}"
 
 class SAM_dock(ObjPos):
-    #<dock id="GA 2" latitude="49.496759842417845" longitude="11.069054733293136"
-    # elevation="317.60116324946284" heading="98.552436828613281"
-    # dockLatitude="49.496774936124368" dockLongitude="11.068896558384955" dockHeading="98.230850219726563" />
-    dock_re = re.compile('.* latitude="([^"]+)".* longitude="([^"]+)".* heading="([^"]+)"')
-
-    def __init__(self, line):
-        m = self.dock_re.match(line)
-        if m is None:
-            log.error(f"Cannot parse dock line: '{line}'")
-
-        self.lat = float(m.group(1))
-        self.lon = float(m.group(2))
-        self.hdg = normalize_hdg(90 + float(m.group(3)))
+    def __init__(self, attrib):
+        self.lat = float(attrib['latitude'])
+        self.lon = float(attrib['longitude'])
+        self.hdg = normalize_hdg(90 + float(attrib['heading']))
 
     def __repr__(self):
         return f"sam_dock {self.lat} {self.lon} {self.hdg}°"
@@ -148,14 +128,14 @@ class SAM():
         self.jetways = []
         self.docks = []
 
-        for l in open("sam.xml", "r").readlines():
-            if l.find("<jetway ") > 0:
-                jw = SAM_jw(l)
-                if 3.5 <= jw.height and jw.height <= 6.0 and jw.lcode >= 0: # only in the range of XP12
-                    self.jetways.append(jw)
+        root = xml.etree.ElementTree.parse("sam.xml").getroot()
+        for e in root.find('jetways').findall('jetway'):
+            jw = SAM_jw(e.attrib)
+            if 3.5 <= jw.height and jw.height <= 6.0 and jw.lcode >= 0: # only in the range of XP12
+                self.jetways.append(jw)
 
-            elif l.find("<dock ") > 0:
-                self.docks.append(SAM_dock(l))
+        for e in root.find('docks').findall('dock'):
+            self.docks.append(SAM_dock(e.attrib))
 
     def match_docks(self, obj_ref):
         for dock in self.docks:
@@ -541,7 +521,7 @@ with open("Earth nav data/apt.dat", "w") as f:
     for l in apt_lines:
         if l.find("99") == 0:
             for jw in sam.jetways:
-                if jw.lcode >= 0:
+                if not jw.obj_ref is None and jw.lcode >= 0:
                     f.write(f"{jw.apt_1500()}\n")
         f.write(l)
 
