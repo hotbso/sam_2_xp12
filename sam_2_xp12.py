@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-VERSION = "1.0-b4-dev"
+VERSION = "1.0-b4"
 
 DEBUG_PARSER = False # true should reproduce the input dsf_txt verbatim
 verbose = 0
@@ -68,7 +68,7 @@ class SAM_jw(ObjPos):
     obj_ref = None  # gets assigned if jw is matched by an object
 
     def __init__(self, attrib):
-        print(attrib)
+        #print(attrib)
         self.name = attrib['name']
         self.lat = float(attrib['latitude'])
         self.lon = float(attrib['longitude'])
