@@ -20,7 +20,7 @@
 # OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 # SOFTWARE.
 
-VERSION = "1.0-b4"
+VERSION = "1.0"
 
 DEBUG_PARSER = False # true should reproduce the input dsf_txt verbatim
 verbose = 0
@@ -364,7 +364,7 @@ log.info(f"args: {sys.argv}")
 
 def usage():
     log.error( \
-        """sam_2_xp12 -jw_type 0..3 [-jw_match_radius d] [-remove_sam_lib_objects] [-verbose]
+        """sam_2_xp12 -jw_type 0..3 [-jw_match_radius d] [-jw_rotunda_length d] [-remove_sam_lib_objects] [-verbose]
             -jw_type 0..3
                 0: light-solid
                 1: light-glass
